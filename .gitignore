@@ -45,3 +45,4 @@ tags
 build/*
 .waf*/*
 term.sql.db
+loraip
