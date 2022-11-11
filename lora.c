@@ -30,6 +30,10 @@ uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
 int lora_fd = -1;
 
+#define M0 "22"
+#define M1 "27"
+#define AUX "4"
+
 void
 print_help(void)
 {
@@ -92,6 +96,114 @@ find_magic(const uint8_t *src, int len, uint16_t match, int *r)
 	}
 
 	return 1;
+}
+
+#define OUTPUT "out"
+#define INPUT "in"
+#define LOW "0"
+#define HIGH "1"
+
+/* return 0 if OK
+ * return -1 if FAILED
+ */
+int
+setup_pin(char *pin, char *mode)
+{
+	FILE *fp;
+	char path[65] = "/sys/class/gpio/export";
+
+	if (pin == NULL || pin[0] == '\0' || mode == NULL || mode[0] == '\0')
+		return -1;
+
+	fp = fopen(path, "w");
+	if (fp == NULL) {
+		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
+		return -1;
+	}
+	fwrite(pin, 1, strlen(pin), fp);
+	fclose(fp);
+
+	usleep(100000); /* sleep 0.1s before next operation */
+
+	snprintf(path, 64, "/sys/class/gpio/gpio%s/direction", pin);
+
+	fp = fopen(path, "w");
+	if (fp == NULL) {
+		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
+		return -1;
+	}
+	fwrite(mode, 1, strlen(mode), fp);
+	fclose(fp);
+	return 0;
+}
+
+/* return 0 if OK
+ * return -1 if FAILED
+ */
+int
+write_pin(char *pin, char *value)
+{
+	char path[65];
+	FILE *fp;
+
+	if (pin == NULL || pin[0] == '\0' || value == NULL || value[0] == '\0')
+		return -1;
+
+	snprintf(path, 64, "/sys/class/gpio/gpio%s/value", pin);
+
+	fp = fopen(path, "w");
+	if (fp == NULL) {
+		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
+		return -1;
+	}
+	fwrite(value, 1, strlen(value), fp);
+	fclose(fp);
+	return 0;
+}
+
+/* return 0 or 1 if OK
+ * return -1 if read FAILED
+ */
+int
+read_pin(char *pin)
+{
+	char path[65], c;
+	FILE *fp;
+
+	if (pin == NULL || pin[0] == '\0')
+		return -1;
+
+	snprintf(path, 64, "/sys/class/gpio/gpio%s/value", pin);
+
+	fp = fopen(path, "r");
+	if (fp == NULL) {
+		fprintf(stderr, "can't read %s: %s\r\n", path, strerror(errno));
+		return -1;
+	}
+	fread(&c, 1, 1, fp);
+	fclose(fp);
+	return (c - '0');
+}
+
+/* return 0 if OK
+ * return -1 if FAILED
+ */
+int
+release_pin(char *pin)
+{
+	FILE *fp;
+	char path[65] = "/sys/class/gpio/unexport";
+	if (pin == NULL || pin[0] == '\0')
+		return -1;
+
+	fp = fopen(path, "w");
+	if (fp == NULL) {
+		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
+		return -1;
+	}
+	fwrite(pin, 1, strlen(pin), fp);
+	fclose(fp);
+	return 0;
 }
 
 /* return fd of opened ttys of baudrate with 8N1
@@ -165,7 +277,7 @@ open_tty(char *dev, int speed)
 	}
 
 	if (-1 == tcgetattr(fd, &options)) {
-		printf("tcgetattr(#%d) failed, %s\r\n", fd, strerror(errno));
+		fprintf(stderr, "tcgetattr(#%d) failed, %s\r\n", fd, strerror(errno));
 		close(fd);
 		return -1;
 	}
@@ -189,7 +301,7 @@ open_tty(char *dev, int speed)
 	options.c_cc[VMIN] = 0;
 
 	if (-1 == tcsetattr(fd, TCSANOW, &options)) {
-		printf("tcsetattr(#%d) failed, %s\r\n", fd, strerror(errno));
+		fprintf(stderr, "tcsetattr(#%d) failed, %s\r\n", fd, strerror(errno));
 		close(fd);
 		return -1;
 	}
@@ -201,7 +313,7 @@ open_tty(char *dev, int speed)
 
 	/* Flush old transmissions */
 	if (tcflush(fd, TCIOFLUSH) == -1)
-		printf("flushing serial port %s failed, %s\r\n", dev, strerror(errno));
+		fprintf(stderr, "flushing serial port %s failed, %s\r\n", dev, strerror(errno));
 
 	return fd;
 }
@@ -249,8 +361,34 @@ main(int argc, char **argv)
 	/* open tty */
 	lora_fd = open_tty(lora_tty, bps);
 	if (lora_fd < 0) {
-		printf("fail to open lorahat serial device %s\n", lora_tty);
+		fprintf(stderr, "fail to open lorahat serial device %s\n", lora_tty);
 		return 1;
 	}
+
+	if (setup_pin(M0, OUTPUT)) {
+		fprintf(stderr, "failed to set pin #%s-%s failed\n", M0, OUTPUT);
+		close(lora_fd);
+		return 1;
+	}
+
+	if (setup_pin(M1, OUTPUT)) {
+		fprintf(stderr, "failed to set pin #%s-%s failed\n", M1, OUTPUT);
+		release_pin(M0);
+		close(lora_fd);
+		return 1;
+	}
+
+	if (setup_pin(AUX, INPUT)) {
+		fprintf(stderr, "failed to set pin #%s-%s failed\n", AUX, INPUT);
+		release_pin(M0);
+		release_pin(M1);
+		close(lora_fd);
+		return 1;
+	}
+
+	release_pin(M0);
+	release_pin(M1);
+	release_pin(AUX);
+	close(lora_fd);
 	return 0;
 }
