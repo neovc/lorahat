@@ -111,6 +111,7 @@ setup_pin(char *pin, char *mode)
 {
 	FILE *fp;
 	char path[65] = "/sys/class/gpio/export";
+	int k, r = 0;
 
 	if (pin == NULL || pin[0] == '\0' || mode == NULL || mode[0] == '\0')
 		return -1;
@@ -120,7 +121,13 @@ setup_pin(char *pin, char *mode)
 		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
 		return -1;
 	}
-	fwrite(pin, 1, strlen(pin), fp);
+
+	k = strlen(pin);
+	if (k != fwrite(pin, 1, k, fp)) {
+		fprintf(stderr, "write %s to file %s failed: %s\r\n", pin, path, strerror(errno));
+		fclose(fp);
+		return -1;
+	}
 	fclose(fp);
 
 	usleep(100000); /* sleep 0.1s before next operation */
@@ -132,9 +139,14 @@ setup_pin(char *pin, char *mode)
 		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
 		return -1;
 	}
-	fwrite(mode, 1, strlen(mode), fp);
+
+	k = strlen(mode);
+	if (k != fwrite(mode, 1, k, fp)) {
+		fprintf(stderr, "write %s to file %s failed: %s\r\n", mode, path, strerror(errno));
+		r = -1;
+	}
 	fclose(fp);
-	return 0;
+	return r;
 }
 
 /* return 0 if OK
@@ -145,6 +157,7 @@ write_pin(char *pin, char *value)
 {
 	char path[65];
 	FILE *fp;
+	int k, r = 0;
 
 	if (pin == NULL || pin[0] == '\0' || value == NULL || value[0] == '\0')
 		return -1;
@@ -156,9 +169,14 @@ write_pin(char *pin, char *value)
 		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
 		return -1;
 	}
-	fwrite(value, 1, strlen(value), fp);
+
+	k = strlen(value);
+	if (k != fwrite(value, 1, k, fp)) {
+		fprintf(stderr, "write %s to file %s failed: %s\r\n", value, path, strerror(errno));
+		r = -1;
+	}
 	fclose(fp);
-	return 0;
+	return r;
 }
 
 /* return 0 or 1 if OK
@@ -180,7 +198,11 @@ read_pin(char *pin)
 		fprintf(stderr, "can't read %s: %s\r\n", path, strerror(errno));
 		return -1;
 	}
-	fread(&c, 1, 1, fp);
+
+	if (1 != fread(&c, 1, 1, fp)) {
+		fprintf(stderr, "read from %s failed: %s\r\n", path, strerror(errno));
+		c = '0' - 1;
+	}
 	fclose(fp);
 	return (c - '0');
 }
@@ -193,6 +215,8 @@ release_pin(char *pin)
 {
 	FILE *fp;
 	char path[65] = "/sys/class/gpio/unexport";
+	int k, r = 0;
+
 	if (pin == NULL || pin[0] == '\0')
 		return -1;
 
@@ -201,9 +225,13 @@ release_pin(char *pin)
 		fprintf(stderr, "can't write %s: %s\r\n", path, strerror(errno));
 		return -1;
 	}
-	fwrite(pin, 1, strlen(pin), fp);
+	k = strlen(pin);
+	if (k != fwrite(pin, 1, k, fp)) {
+		fprintf(stderr, "write %s to file %s failed: %s\r\n", pin, path, strerror(errno));
+		r = -1;
+	}
 	fclose(fp);
-	return 0;
+	return r;
 }
 
 /* return fd of opened ttys of baudrate with 8N1
