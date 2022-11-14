@@ -632,9 +632,10 @@ write_lorahat(int fd, int rx_freq, int rx_addr, char *msg, int len)
 
 	tx_len = (q - msg); /* remove 0,433, header */
 	tx_len = len - tx_len;
-	memcpy(tx_buf + 6, q, tx_len);
-	tx_buf[6 + tx_len] = '\0';
-	tx_len += 6;
+	tx_buf[6] = tx_len & 0xff; /* prepend length before payload message */
+	memcpy(tx_buf + 7, q, tx_len);
+	tx_buf[7 + tx_len] = '\0';
+	tx_len += 7;
 
 	r = write(fd, tx_buf, tx_len);
 	if (r != tx_len) {
@@ -750,7 +751,7 @@ main(int argc, char **argv)
 					hex_dump(rx_buf, pos, 1);
 				if (pos > 3) {
 					rx_buf[pos] = '\0';
-					printf("rx message: address %d, netid %d, \"%s\"\r\n", rx_buf[0] + (rx_buf[1] << 8), rx_buf[2], (char *)(rx_buf + 3));
+					printf("rx message: address %d, netid %d, length %d, \"%s\"\r\n", rx_buf[0] + (rx_buf[1] << 8), rx_buf[2], rx_buf[3], (char *)(rx_buf + 4));
 					pos = 0;
 				}
 			} else {
