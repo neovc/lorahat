@@ -389,25 +389,27 @@ main(int argc, char **argv)
 	/* open tty */
 	lora_fd = open_tty(lora_tty, bps);
 	if (lora_fd < 0) {
-		fprintf(stderr, "fail to open lorahat serial device %s\n", lora_tty);
+		fprintf(stderr, "fail to open lorahat serial device %s\r\n", lora_tty);
 		return 1;
 	}
 
+	printf("open %s -> fd #%d\r\n", lora_tty, lora_fd);
+
 	if (setup_pin(M0, OUTPUT)) {
-		fprintf(stderr, "failed to set pin #%s-%s failed\n", M0, OUTPUT);
+		fprintf(stderr, "failed to set pin #%s-%s failed\r\n", M0, OUTPUT);
 		close(lora_fd);
 		return 1;
 	}
 
 	if (setup_pin(M1, OUTPUT)) {
-		fprintf(stderr, "failed to set pin #%s-%s failed\n", M1, OUTPUT);
+		fprintf(stderr, "failed to set pin #%s-%s failed\r\n", M1, OUTPUT);
 		release_pin(M0);
 		close(lora_fd);
 		return 1;
 	}
 
 	if (setup_pin(AUX, INPUT)) {
-		fprintf(stderr, "failed to set pin #%s-%s failed\n", AUX, INPUT);
+		fprintf(stderr, "failed to set pin #%s-%s failed\r\n", AUX, INPUT);
 		release_pin(M0);
 		release_pin(M1);
 		close(lora_fd);
