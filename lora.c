@@ -14,6 +14,8 @@
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
+#include <event.h> /* libevent */
+
 /*
  *  -b serial baudrate
  *  -a lora airspeed
@@ -23,13 +25,21 @@
  *  -p tx power
  *  -z buffer size
  *  -k crypt key
+ *  -e libevent mode
  *  -v verbose, print rssi & other infos
  */
 
-int bps = 9600, lora_airspeed = 9600, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
+int bps = 9600, lora_airspeed = 9600, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0, use_event = 0;
 uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
 int lora_fd = -1;
+
+struct event_base *ev_base = NULL;
+struct event lora_event;
+
+uint8_t lora_wbuf[512], lora_rbuf[512];
+int lora_wpos = 0, lora_wsize = 0;
+int lora_rpos = 0, lora_rsize = 512;
 
 #define M0 "22"
 #define M1 "27"
@@ -75,6 +85,7 @@ print_help(void)
 	       " -p power, set lora tx power in dBm, default is 22dBm\r\n"
 	       " -z size, set lorahat serial buffer size, default is 1000 Bytes\r\n"
 	       " -k key, set lora crypt key, default is 0, don't crypt\r\n"
+	       " -e, libevent mode\r\n"
 	       " -v, verbose mode\r\n"
 	      );
 	exit(0);
@@ -645,6 +656,81 @@ write_lorahat(int fd, int rx_freq, int rx_addr, char *msg, int len)
 	return 0;
 }
 
+/* return -2 if EOF
+ * return -1 if failed
+ * return 0 if there has no data to read at this time
+ * return > 0 if success
+ *
+ * if max_buf_len <= 0, buffer_size is unlimited
+ */
+int
+read_buffer(int fd, uint8_t *b, int max_buf_len)
+{
+	int to_read = 0, r;
+
+	if (fd <= 0 || b == NULL) return -1;
+
+	if (ioctl(fd, FIONREAD, &to_read)) {
+		if (errno != EAGAIN && errno != EINTR) return -1;
+		else return 0;
+	}
+
+	if (to_read == 0) to_read = 1;
+	if ((max_buf_len > 0) && (to_read > max_buf_len)) return -3;
+
+	r = read(fd, b, to_read);
+	if ((r == -1 && (errno != EINTR && errno != EAGAIN)) || r == 0) {
+		/* connection closed or reset */
+		if (r == 0) return -2; /* EOF */
+		return -1;
+	}
+
+	return r;
+}
+
+void
+handle_lora(const int fd, short which, void *arg)
+{
+	int r;
+
+	if (which & EV_READ) {
+		r = read_buffer(fd, lora_rbuf + lora_rpos, lora_rsize - lora_rpos);
+		if (r < 0)
+			return;
+
+		lora_rpos += r;
+		if (lora_rpos > 4) {
+			if (lora_rbuf[3] <= (lora_rpos - 4)) {
+				/* we got full lora message */
+				lora_rbuf[lora_rpos] = '\0';
+				printf("rx message: address %d, netid %d, len %d, \"%s\"\r\n", lora_rbuf[0] + (lora_rbuf[1] << 8), lora_rbuf[2], lora_rbuf[3], (char *)(lora_rbuf + 4));
+				lora_rpos -= 4 + lora_rbuf[3];
+				if (lora_rpos > 0) {
+					/* keep unprocessed data */
+					memmove (lora_rbuf, lora_rbuf + 4 + lora_rbuf[3], lora_rpos);
+				}
+			}
+		}
+	}
+
+	if (which & EV_WRITE) {
+		if (lora_wpos < lora_wsize) {
+			r = write(fd, lora_wbuf + lora_wpos, lora_wsize - lora_wpos);
+			if (r > 0)
+				lora_wpos += r;
+		}
+
+		if (lora_wpos >= lora_wsize) {
+			/* no more data to write */
+			lora_wpos = lora_wsize = 0;
+			event_del(&lora_event);
+			event_set(&lora_event, fd, EV_READ | EV_PERSIST, handle_lora, NULL);
+			event_base_set(ev_base, &lora_event);
+			event_add(&lora_event, 0);
+		}
+	}
+}
+
 int
 main(int argc, char **argv)
 {
@@ -652,7 +738,7 @@ main(int argc, char **argv)
 	uint8_t rx_buf[512];
 	char msg[512];
 
-	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:v")) != -1) {
+	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:ve")) != -1) {
 		switch (c) {
 			case 'v':
 				verbose_mode = 1;
@@ -683,6 +769,9 @@ main(int argc, char **argv)
 				break;
 			case 'f':
 				lora_freq = atoi(optarg);
+				break;
+			case 'e':
+				use_event = 1;
 				break;
 			default:
 				print_help();
@@ -724,6 +813,21 @@ main(int argc, char **argv)
 	printf("config lorahat -> %s\r\n", c == 0?"OK":"FAILED");
 
 	if (c == 0) {
+		if (use_event == 1) {
+			ev_base = event_base_new();
+			if (ev_base != NULL) {
+				event_set(&lora_event, lora_fd, EV_READ | EV_WRITE | EV_PERSIST, handle_lora, NULL);
+				event_base_set(ev_base, &lora_event);
+				event_add(&lora_event, 0);
+				printf("enter event_loop()...\r\n");
+				event_base_dispatch(ev_base);
+				/* can't reach here */
+			} else {
+				fprintf(stderr, "can't allocate event_base\r\n");
+			}
+		}
+
+		/* blocked version */
 		printf("try to rx at %dM, addr %d, netid %d\r\n", lora_freq, lora_addr, lora_netid);
 		printf("press 's0,433,xxxx' and enter to send message\r\n");
 		while (1) {
