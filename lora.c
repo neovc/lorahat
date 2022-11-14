@@ -324,7 +324,7 @@ open_tty(char *dev, int speed, int non_block)
 	if (dev == NULL || dev[0] == '\0')
 		return -1;
 
-	fd = open(dev, O_RDWR | O_NOCTTY | O_NONBLOCK);
+	fd = open(dev, O_RDWR | O_NOCTTY /* | O_NONBLOCK */);
 
 	if (fd < 0) {
 		fprintf(stderr, "can't open %s: %s\r\n", dev, strerror(errno));
@@ -780,7 +780,7 @@ main(int argc, char **argv)
 	}
 
 	/* open tty */
-	lora_fd = open_tty(lora_tty, bps, 0);
+	lora_fd = open_tty(lora_tty, bps, use_event);
 	if (lora_fd < 0) {
 		fprintf(stderr, "fail to open lorahat serial device %s\r\n", lora_tty);
 		return 1;
