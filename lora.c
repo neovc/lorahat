@@ -25,7 +25,7 @@
  *  -v verbose, print rssi & other infos
  */
 
-int bps = 9600, lora_airspeed = 9600, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0;
+int bps = 9600, lora_airspeed = 9600, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
 uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
 int lora_fd = -1;
@@ -34,11 +34,39 @@ int lora_fd = -1;
 #define M1 "27"
 #define AUX "4"
 
+#define SX126X_UART_BAUDRATE_1200 0x00
+#define SX126X_UART_BAUDRATE_2400 0x20
+#define SX126X_UART_BAUDRATE_4800 0x40
+#define SX126X_UART_BAUDRATE_9600 0x60
+#define SX126X_UART_BAUDRATE_19200 0x80
+#define SX126X_UART_BAUDRATE_38400 0xA0
+#define SX126X_UART_BAUDRATE_57600 0xC0
+#define SX126X_UART_BAUDRATE_115200 0xE0
+
+#define SX126X_PACKAGE_SIZE_240_BYTE 0x00
+#define SX126X_PACKAGE_SIZE_128_BYTE 0x40
+#define SX126X_PACKAGE_SIZE_64_BYTE 0x80
+#define SX126X_PACKAGE_SIZE_32_BYTE 0xC0
+
+#define SX126X_POWER_22DBM 0x00
+#define SX126X_POWER_17DBM 0x01
+#define SX126X_POWER_13DBM 0x02
+#define SX126X_POWER_10DBM 0x03
+
+#define SX126X_AIRSPEED_1200 0x01
+#define SX126X_AIRSPEED_2400 0x02
+#define SX126X_AIRSPEED_4800 0x03
+#define SX126X_AIRSPEED_9600 0x04
+#define SX126X_AIRSPEED_19200 0x05
+#define SX126X_AIRSPEED_38400 0x06
+#define SX126X_AIRSPEED_62500 0x07
+
 void
 print_help(void)
 {
 	printf("usage: loraip [optargs]\r\n"
-           " -a airspeed, set lora airspeed, default is 9600\r\n"
+	       " -a airspeed, set lora airspeed, default is 9600\r\n"
+	       " -A lora address, set lora address, default is 0\r\n"
 	       " -b baudrate, set tty baudrate, default is 9600\r\n"
 	       " -s tty, set lorahat serial tty, default is /dev/ttyS0\r\n"
 	       " -f freq, set lora freq in Mhz, default is 433MHz\r\n"
@@ -47,8 +75,46 @@ print_help(void)
 	       " -z size, set lorahat serial buffer size, default is 1000 Bytes\r\n"
 	       " -k key, set lora crypt key, default is 0, don't crypt\r\n"
 	       " -v, verbose mode\r\n"
-		  );
+	      );
 	exit(0);
+}
+
+/**
+ * Dumps a chunk of memory to the screen
+ */
+void
+hex_dump(void *src, int len, int with_header)
+{
+	int i, j = 0, k;
+	char text[17];
+
+	text[16] = '\0';
+	if (with_header)
+		printf("%p : ", src);
+	for (i = 0; i < len; i ++) {
+		j ++;
+		printf("%02X ", ((volatile unsigned char *)src)[i]);
+		if (j == 8)
+			printf(" ");
+		if (j == 16) {
+			j = 0;
+			memcpy(text, &((char *)src)[i-15], 16);
+			for (k = 0; k < 16; k ++) {
+				if ((text[k] < 32) || (text[k] > 126)) {
+					text[k] = '.';
+				}
+			}
+			printf(" |");
+			printf("%s", text);
+			printf("|\n\r");
+			if (with_header && (i < (len - 1))) {
+				printf("%p : ", src + i + 1);
+			}
+		}
+	}
+
+	if (i % 16)
+		printf("\r\n");
 }
 
 /* return 0 if OK
@@ -238,7 +304,7 @@ release_pin(char *pin)
  * return -1 if failed.
  */
 int
-open_tty(char *dev, int speed)
+open_tty(char *dev, int speed, int non_block)
 {
 	struct termios options;
 	int fd, rate, flag;
@@ -334,10 +400,12 @@ open_tty(char *dev, int speed)
 		return -1;
 	}
 
-	/* set non-blocking tty fd */
-	flag = fcntl(fd, F_GETFL, 0);
-	if (flag >= 0)
-		fcntl(fd, F_SETFL, flag | O_NONBLOCK);
+	if (non_block) {
+		/* set non-blocking tty fd */
+		flag = fcntl(fd, F_GETFL, 0);
+		if (flag >= 0)
+			fcntl(fd, F_SETFL, flag | O_NONBLOCK);
+	}
 
 	/* Flush old transmissions */
 	if (tcflush(fd, TCIOFLUSH) == -1)
@@ -346,18 +414,186 @@ open_tty(char *dev, int speed)
 	return fd;
 }
 
+/* return 0 if init OK
+ * return -1 if init failed
+ */
+int
+init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_power, int airspeed, int buffersize, int cryptkey)
+{
+	uint8_t cfg_reg[] = {0xC2, 0x00, 0x09, 0x00, 0x00, 0x00, 0x62, 0x00, 0x12, 0x43, 0x00, 0x00}, buf[13];
+	uint8_t rxfreq_off, baud_key, airspeed_key, power_key, buffersize_key;
+	int r;
+
+	if (fd < 0)
+		return -1;
+
+	if ((rx_freq <= 930) && (rx_freq >= 850)) {
+		rxfreq_off = rx_freq - 850;
+	} else if ((rx_freq <= 493) && (rx_freq >= 410)) {
+		rxfreq_off = rx_freq - 410;
+	} else {
+		fprintf(stderr, "bad lora rx_freq %d, should be 410-493 or 850-930\r\n", rx_freq);
+		return -1;
+	}
+
+	/* address is 0 - 65535
+	 * under the same frequence, if set 65535, the node can receive
+	 * messages from another node of address is 0 to 65534 and similarly,
+	 * the address 0 to 65534 of node can receive messages while
+	 * the another note of address is 65535 sends.
+	 * otherwise two node must be same the address and frequence
+	 */
+	cfg_reg[3] = (rx_addr >> 8) & 0xff;
+	cfg_reg[4] = rx_addr & 0xff;
+
+	/* netid, 0 - 255*/
+	cfg_reg[5] = rx_netid & 0xff;
+
+	switch (baud) {
+	case 1200:
+		baud_key = SX126X_UART_BAUDRATE_1200;
+		break;
+	case 2400:
+		baud_key = SX126X_UART_BAUDRATE_2400;
+		break;
+	case 4800:
+		baud_key = SX126X_UART_BAUDRATE_4800;
+		break;
+	case 19200:
+		baud_key = SX126X_UART_BAUDRATE_19200;
+		break;
+	case 38400:
+		baud_key = SX126X_UART_BAUDRATE_38400;
+		break;
+	case 57600:
+		baud_key = SX126X_UART_BAUDRATE_57600;
+		break;
+	case 115200:
+		baud_key = SX126X_UART_BAUDRATE_115200;
+		break;
+	case 9600:
+	default:
+		baud_key = SX126X_UART_BAUDRATE_9600;
+		break;
+	}
+
+	switch (airspeed) {
+	case 1200:
+		airspeed_key = SX126X_AIRSPEED_1200;
+		break;
+	case 2400:
+		airspeed_key = SX126X_AIRSPEED_2400;
+		break;
+	case 4800:
+		airspeed_key = SX126X_AIRSPEED_4800;
+		break;
+	case 19200:
+		airspeed_key = SX126X_AIRSPEED_19200;
+		break;
+	case 38400:
+		airspeed_key = SX126X_AIRSPEED_38400;
+		break;
+	case 62500:
+		airspeed_key = SX126X_AIRSPEED_62500;
+		break;
+	case 9600:
+	default:
+		airspeed_key = SX126X_AIRSPEED_9600;
+		break;
+	}
+
+	cfg_reg[6] = baud_key + airspeed_key;
+
+	switch (buffersize) {
+	case 128:
+		buffersize_key = SX126X_PACKAGE_SIZE_128_BYTE;
+		break;
+	case 64:
+		buffersize_key = SX126X_PACKAGE_SIZE_64_BYTE;
+		break;
+	case 32:
+		buffersize_key = SX126X_PACKAGE_SIZE_32_BYTE;
+		break;
+	case 240:
+	default:
+		buffersize_key = SX126X_PACKAGE_SIZE_240_BYTE;
+		break;
+	}
+
+	switch (tx_power) {
+	case 17:
+		power_key = SX126X_POWER_17DBM;
+		break;
+	case 13:
+		power_key = SX126X_POWER_13DBM;
+		break;
+	case 10:
+		power_key = SX126X_POWER_10DBM;
+		break;
+	case 22:
+	default:
+		power_key = SX126X_POWER_22DBM;
+		break;
+	}
+
+	cfg_reg[7] = buffersize_key + power_key + 0x20;
+	cfg_reg[8] = rxfreq_off;
+	cfg_reg[9] = 0x43 + 0x80; /* enable rssi and dn't relay */
+	cfg_reg[10] = (cryptkey >> 8) & 0xff;
+	cfg_reg[11] = cryptkey & 0xff;
+
+	/* let lorahat enter config mode */
+	write_pin(M0, "0");
+	write_pin(M1, "1");
+	usleep(100000); /* sleep 0.1s */
+
+	/* write to lorahat */
+	if (verbose_mode) {
+		printf("write 12 bytes to lorahat:\r\n");
+		hex_dump(cfg_reg, 12, 0);
+	}
+
+	r = write(fd, cfg_reg, 12);
+	if (r != 12) {
+		/* write failed */
+		write_pin(M1, "0");
+		fprintf(stderr, "write #12 cfg register to fd #%d failed, return %d\r\n", fd, r);
+		return -1;
+	}
+
+	usleep(200000); /* sleep 0.2s */
+	r = read(fd, buf, 12);
+
+	write_pin(M0, "0");
+	write_pin(M1, "0");
+
+	if (r < 12) {
+		fprintf(stderr, "read #12 bytes from fd #%d failed, return %d\r\n", fd, r);
+		return -1;
+	}
+
+	if (verbose_mode) {
+		printf("read 12 bytes from lorahat:\r\n");
+		hex_dump(buf, 12, 0);
+	}
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "a:b:z:s:p:n:k:f:v")) != -1) {
+	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:v")) != -1) {
 		switch (c) {
 			case 'v':
 				verbose_mode = 1;
 				break;
 			case 'a':
 				lora_airspeed = atoi(optarg);
+				break;
+			case 'A':
+				lora_addr = atoi(optarg);
 				break;
 			case 'b':
 				bps = atoi(optarg);
@@ -387,7 +623,7 @@ main(int argc, char **argv)
 	}
 
 	/* open tty */
-	lora_fd = open_tty(lora_tty, bps);
+	lora_fd = open_tty(lora_tty, bps, 0);
 	if (lora_fd < 0) {
 		fprintf(stderr, "fail to open lorahat serial device %s\r\n", lora_tty);
 		return 1;
@@ -415,6 +651,9 @@ main(int argc, char **argv)
 		close(lora_fd);
 		return 1;
 	}
+
+	c = init_lorahat(lora_fd, bps, lora_freq, lora_addr, lora_netid, lora_power, lora_airspeed, lora_buffersize, lora_key);
+	printf("config lorahat -> %s\r\n", c == 0?"OK":"FAILED");
 
 	release_pin(M0);
 	release_pin(M1);
