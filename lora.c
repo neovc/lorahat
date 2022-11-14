@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <termios.h>
 #include <fcntl.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
@@ -538,7 +539,8 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 
 	cfg_reg[7] = buffersize_key + power_key + 0x20;
 	cfg_reg[8] = rxfreq_off;
-	cfg_reg[9] = 0x43 + 0x80; /* enable rssi and dn't relay */
+	cfg_reg[9] = 0x43; /* disable rssi and dn't relay */
+	// cfg_reg[9] = 0x43 + 0x80; /* enable rssi and dn't relay */
 	cfg_reg[10] = (cryptkey >> 8) & 0xff;
 	cfg_reg[11] = cryptkey & 0xff;
 
@@ -582,7 +584,8 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 int
 main(int argc, char **argv)
 {
-	int c;
+	int c, pos = 0, r;
+	uint8_t rx_buf[512];
 
 	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:v")) != -1) {
 		switch (c) {
@@ -655,6 +658,42 @@ main(int argc, char **argv)
 	c = init_lorahat(lora_fd, bps, lora_freq, lora_addr, lora_netid, lora_power, lora_airspeed, lora_buffersize, lora_key);
 	printf("config lorahat -> %s\r\n", c == 0?"OK":"FAILED");
 
+	if (c == 0) {
+		printf("try to rx at %dM, addr %d, netid %d\r\n", lora_freq, lora_addr, lora_netid);
+		while (1) {
+			/* try to read from loarhat */
+			c = -1;
+			if (ioctl(lora_fd, FIONREAD, &c)) {
+				if (errno != EAGAIN && errno != EINTR) {
+					fprintf(stderr, "ioctl(#%d, FIONREAD) failed, %s\r\n", lora_fd, strerror(errno));
+					break;
+				} else {
+					c = -1;
+				}
+			} else {
+				if (c > 0)
+					fprintf(stderr, "ioctl(#%d, FIONREAD) return %d -> OK\r\n", lora_fd, c);
+			}
+
+			if (c > 0) {
+				r = read(lora_fd, rx_buf + pos, c);
+				if (r < 0) {
+					fprintf(stderr, "read from fd %d return %d, %s\r\n", lora_fd, r, strerror(errno));
+					break;
+				}
+				pos += r;
+				if (verbose_mode)
+					hex_dump(rx_buf, pos, 1);
+				if (pos > 3) {
+					rx_buf[pos] = '\0';
+					printf("rx message: address %d, netid %d, \"%s\"\r\n", rx_buf[0] + (rx_buf[1] << 8), rx_buf[2], (char *)(rx_buf + 3));
+					pos = 0;
+				}
+			}
+
+			usleep(500000); /* sleep 0.5s */
+		}
+	}
 	release_pin(M0);
 	release_pin(M1);
 	release_pin(AUX);
