@@ -539,8 +539,8 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 
 	cfg_reg[7] = buffersize_key + power_key + 0x20;
 	cfg_reg[8] = rxfreq_off;
-	cfg_reg[9] = 0x43; /* disable rssi and dn't relay */
-	// cfg_reg[9] = 0x43 + 0x80; /* enable rssi and dn't relay */
+	cfg_reg[9] = 0x43; /* disable rssi and don't relay */
+	// cfg_reg[9] = 0x43 + 0x80; /* enable rssi and don't relay */
 	cfg_reg[10] = (cryptkey >> 8) & 0xff;
 	cfg_reg[11] = cryptkey & 0xff;
 
@@ -581,11 +581,74 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 	return 0;
 }
 
+/* return 0 if OK
+ * return -1 if FAILED
+ */
+int
+write_lorahat(int fd, int rx_freq, int rx_addr, char *msg)
+{
+	char *p, *q;
+	char tx_buf[512];
+	int tx_freq, tx_addr, tx_len, r;
+
+	if (fd < 0 || msg == NULL || msg[0] == '\0')
+		return -1;
+
+	p = strchr(msg, ',');
+	if (p == NULL)
+		return -1;
+	p[0] = '\0';
+	tx_addr = atoi(msg);
+	p[0] = ',';
+	p ++;
+	q = strchr(p, ',');
+	if (q == NULL)
+		return -1;
+	q[0] = '\0';
+	tx_freq = atoi(p);
+	q[0] = ',';
+	q ++;
+	tx_buf[0] = (tx_addr >> 8) & 0xff;
+	tx_buf[1] = tx_addr & 0xff;
+
+	if ((tx_freq <= 930) && (tx_freq >= 850)) {
+		tx_buf[2] = tx_freq - 850;
+	} else if ((tx_freq <= 493) && (tx_freq >= 410)) {
+		tx_buf[2] = tx_freq - 410;
+	} else {
+		tx_buf[2] = 0;
+	}
+
+	tx_buf[3] = (rx_addr >> 8) & 0xff;
+	tx_buf[4] = rx_addr & 0xff;
+
+	if ((rx_freq <= 930) && (rx_freq >= 850)) {
+		tx_buf[5] = lora_freq - 850;
+	} else if ((rx_freq <= 493) && (rx_freq >= 410)) {
+		tx_buf[5] = rx_freq - 410;
+	} else {
+		tx_buf[5] = 0;
+	}
+
+	tx_len = strlen(q);
+	memcpy(tx_buf + 6, q, tx_len);
+	tx_buf[6 + tx_len] = '\0';
+	tx_len += 6;
+
+	r = write(fd, tx_buf, tx_len);
+	if (r != tx_len) {
+		fprintf(stderr, "write #%d data to fd %d failed, return %d\r\n", tx_len, fd, r);
+		return -1;
+	}
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
 	int c, pos = 0, r;
 	uint8_t rx_buf[512];
+	char msg[512];
 
 	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:v")) != -1) {
 		switch (c) {
@@ -659,7 +722,7 @@ main(int argc, char **argv)
 	printf("config lorahat -> %s\r\n", c == 0?"OK":"FAILED");
 
 	if (c == 0) {
-		printf("try to rx at %dM, addr %d, netid %d\r\n", lora_freq, lora_addr, lora_netid);
+		printf("try to rx at %dM, addr %d, netid %d\r\npress 's' and enter to send message\r\n", lora_freq, lora_addr, lora_netid);
 		while (1) {
 			/* try to read from loarhat */
 			c = -1;
@@ -671,8 +734,7 @@ main(int argc, char **argv)
 					c = -1;
 				}
 			} else {
-				if (c > 0)
-					fprintf(stderr, "ioctl(#%d, FIONREAD) return %d -> OK\r\n", lora_fd, c);
+				// if (c > 0) fprintf(stderr, "ioctl(#%d, FIONREAD) return %d -> OK\r\n", lora_fd, c);
 			}
 
 			if (c > 0) {
@@ -688,6 +750,20 @@ main(int argc, char **argv)
 					rx_buf[pos] = '\0';
 					printf("rx message: address %d, netid %d, \"%s\"\r\n", rx_buf[0] + (rx_buf[1] << 8), rx_buf[2], (char *)(rx_buf + 3));
 					pos = 0;
+				}
+			} else {
+				/* try to read from stdin */
+				if (0 == ioctl(0, FIONREAD, &c) && c > 0) {
+					c = getchar();
+					if (c == 'S' || c == 's') {
+						printf("enter address,freq,msg(0,433,xxxx): ");
+						if (scanf("%s", msg) > 0) {
+							if (0 == write_lorahat(lora_fd, lora_freq, lora_addr, msg)) {
+								printf("write %s to lorahat -> OK\r\n", msg);
+							}
+						}
+						printf("press 's' and enter to send message\r\n");
+					}
 				}
 			}
 
