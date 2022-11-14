@@ -585,13 +585,13 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
  * return -1 if FAILED
  */
 int
-write_lorahat(int fd, int rx_freq, int rx_addr, char *msg)
+write_lorahat(int fd, int rx_freq, int rx_addr, char *msg, int len)
 {
 	char *p, *q;
 	char tx_buf[512];
 	int tx_freq, tx_addr, tx_len, r;
 
-	if (fd < 0 || msg == NULL || msg[0] == '\0')
+	if (fd < 0 || msg == NULL || msg[0] == '\0' || len <= 0)
 		return -1;
 
 	p = strchr(msg, ',');
@@ -630,7 +630,8 @@ write_lorahat(int fd, int rx_freq, int rx_addr, char *msg)
 		tx_buf[5] = 0;
 	}
 
-	tx_len = strlen(q);
+	tx_len = (q - msg); /* remove 0,433, header */
+	tx_len = len - tx_len;
 	memcpy(tx_buf + 6, q, tx_len);
 	tx_buf[6 + tx_len] = '\0';
 	tx_len += 6;
@@ -722,7 +723,8 @@ main(int argc, char **argv)
 	printf("config lorahat -> %s\r\n", c == 0?"OK":"FAILED");
 
 	if (c == 0) {
-		printf("try to rx at %dM, addr %d, netid %d\r\npress 's' and enter to send message\r\n", lora_freq, lora_addr, lora_netid);
+		printf("try to rx at %dM, addr %d, netid %d\r\n", lora_freq, lora_addr, lora_netid);
+		printf("press 's0,433,xxxx' and enter to send message\r\n");
 		while (1) {
 			/* try to read from loarhat */
 			c = -1;
@@ -756,13 +758,25 @@ main(int argc, char **argv)
 				if (0 == ioctl(0, FIONREAD, &c) && c > 0) {
 					c = getchar();
 					if (c == 'S' || c == 's') {
-						printf("enter address,freq,msg(0,433,xxxx): ");
-						if (scanf("%s", msg) > 0) {
-							if (0 == write_lorahat(lora_fd, lora_freq, lora_addr, msg)) {
+						if (NULL != fgets(msg, 512, stdin)) {
+							r = strlen(msg) - 1;
+							if (r >= 0 && msg[r] == '\n')
+								msg[r] = '\0';
+							if (0 == write_lorahat(lora_fd, lora_freq, lora_addr, msg, strlen(msg))) {
 								printf("write %s to lorahat -> OK\r\n", msg);
 							}
 						}
-						printf("press 's' and enter to send message\r\n");
+						printf("press 's0,433,xxxx' and enter to send message\r\n");
+					} else if (c == 'T' || c == 't') {
+						/* try to send hex data to lorahat */
+						strcpy(msg, "0,433,abcdef");
+						r = strlen(msg);
+						msg[r ++] = '\0';
+						msg[r ++] = 0xff;
+						msg[r ++] = 0xab;
+						if (0 == write_lorahat(lora_fd, lora_freq, lora_addr, msg, r)) {
+							printf("write hex %s to lorahat -> OK\r\n", msg);
+						}
 					}
 				}
 			}
