@@ -37,8 +37,7 @@ int lora_fd = -1;
 struct event_base *ev_base = NULL;
 struct event lora_event;
 
-uint8_t lora_wbuf[512], lora_rbuf[512];
-int lora_wpos = 0, lora_wsize = 0;
+uint8_t lora_rbuf[512];
 int lora_rpos = 0, lora_rsize = 512;
 
 #define M0 "22"
@@ -634,7 +633,7 @@ write_lorahat(int fd, int rx_freq, int rx_addr, char *msg, int len)
 	tx_buf[4] = rx_addr & 0xff;
 
 	if ((rx_freq <= 930) && (rx_freq >= 850)) {
-		tx_buf[5] = lora_freq - 850;
+		tx_buf[5] = rx_freq - 850;
 	} else if ((rx_freq <= 493) && (rx_freq >= 410)) {
 		tx_buf[5] = rx_freq - 410;
 	} else {
@@ -688,6 +687,58 @@ read_buffer(int fd, uint8_t *b, int max_buf_len)
 	return r;
 }
 
+/* return 0 if OK
+ * return -1 if FAILED
+ */
+int
+evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint8_t *payload, int len)
+{
+	uint8_t tx_buf[512];
+	int r, pos = 0;
+
+	if (fd < 0 || payload == NULL || payload[0] == '\0' || len <= 0)
+		return -1;
+
+	tx_buf[0] = (tx_addr >> 8) & 0xff;
+	tx_buf[1] = tx_addr & 0xff;
+
+	if ((tx_freq <= 930) && (tx_freq >= 850)) {
+		tx_buf[2] = tx_freq - 850;
+	} else if ((tx_freq <= 493) && (tx_freq >= 410)) {
+		tx_buf[2] = tx_freq - 410;
+	} else {
+		tx_buf[2] = 0;
+	}
+
+	tx_buf[3] = (rx_addr >> 8) & 0xff;
+	tx_buf[4] = rx_addr & 0xff;
+
+	if ((rx_freq <= 930) && (rx_freq >= 850)) {
+		tx_buf[5] = rx_freq - 850;
+	} else if ((rx_freq <= 493) && (rx_freq >= 410)) {
+		tx_buf[5] = rx_freq - 410;
+	} else {
+		tx_buf[5] = 0;
+	}
+
+	tx_buf[6] = len & 0xff; /* prepend length before payload message */
+	memcpy(tx_buf + 7, payload, len);
+	tx_buf[7 + len] = '\0';
+	len += 7;
+
+	/* we need to write all data to lorahat here */
+	while (pos < len) {
+		r = write(fd, tx_buf + pos, len - pos);
+		if (r > 0) {
+			pos += r;
+		} else if ((r == -1 ) && (errno != EINTR) && (errno != EAGAIN)) {
+			fprintf(stderr, "write #%d data to fd %d failed, return %d, %s\r\n", len - pos, fd, r, strerror(errno));
+			return -1;
+		}
+	}
+	return 0;
+}
+
 void
 handle_lora(const int fd, short which, void *arg)
 {
@@ -710,23 +761,6 @@ handle_lora(const int fd, short which, void *arg)
 					memmove (lora_rbuf, lora_rbuf + 4 + lora_rbuf[3], lora_rpos);
 				}
 			}
-		}
-	}
-
-	if (which & EV_WRITE) {
-		if (lora_wpos < lora_wsize) {
-			r = write(fd, lora_wbuf + lora_wpos, lora_wsize - lora_wpos);
-			if (r > 0)
-				lora_wpos += r;
-		}
-
-		if (lora_wpos >= lora_wsize) {
-			/* no more data to write */
-			lora_wpos = lora_wsize = 0;
-			event_del(&lora_event);
-			event_set(&lora_event, fd, EV_READ | EV_PERSIST, handle_lora, NULL);
-			event_base_set(ev_base, &lora_event);
-			event_add(&lora_event, 0);
 		}
 	}
 }
@@ -816,7 +850,7 @@ main(int argc, char **argv)
 		if (use_event == 1) {
 			ev_base = event_base_new();
 			if (ev_base != NULL) {
-				event_set(&lora_event, lora_fd, EV_READ | EV_WRITE | EV_PERSIST, handle_lora, NULL);
+				event_set(&lora_event, lora_fd, EV_READ | EV_PERSIST, handle_lora, NULL);
 				event_base_set(ev_base, &lora_event);
 				event_add(&lora_event, 0);
 				printf("enter event_loop()...\r\n");
