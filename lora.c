@@ -811,7 +811,7 @@ send_handler(void *arg)
 int
 main(int argc, char **argv)
 {
-	int c, pos = 0, r;
+	int c, pos = 0, r, default_bps = 9600;
 	uint8_t rx_buf[512];
 	char msg[512];
 	pthread_t send_task;
@@ -886,7 +886,7 @@ main(int argc, char **argv)
 	usleep(200000); /* sleep 0.2s */
 
 	/* open lorahat's tty */
-	lora_fd = open_tty(lora_tty, bps, use_event);
+	lora_fd = open_tty(lora_tty, default_bps, use_event);
 	if (lora_fd < 0) {
 		fprintf(stderr, "fail to open lorahat serial device %s\r\n", lora_tty);
 		release_pin(M0);
@@ -894,12 +894,25 @@ main(int argc, char **argv)
 		return 1;
 	}
 
-	printf("open %s -> fd #%d\r\n", lora_tty, lora_fd);
+	printf("open %s - default #%d bps -> fd #%d\r\n", lora_tty, default_bps, lora_fd);
 
 	c = init_lorahat(lora_fd, bps, lora_freq, lora_addr, lora_netid, lora_power, lora_airspeed, lora_buffersize, lora_key);
-	printf("config lorahat -> %s\r\n", c == 0?"OK":"FAILED");
+	printf("config lorahat at %d bps -> %s\r\n", bps, c == 0?"OK":"FAILED");
 
 	if (c == 0) {
+		if (default_bps != bps) {
+			/* we need to reconnect lorahat's tty */
+			close(lora_fd);
+			lora_fd = open_tty(lora_tty, bps, use_event);
+			if (lora_fd < 0) {
+				fprintf(stderr, "fail to re-open lorahat serial device %s/%dbps\r\n", lora_tty, bps);
+				release_pin(M0);
+				release_pin(M1);
+				return 1;
+			}
+			printf("reopen %s - #%d bps -> fd #%d\r\n", lora_tty, bps, lora_fd);
+		}
+
 		if (use_event == 1) {
 			ev_base = event_base_new();
 			if (ev_base != NULL) {
