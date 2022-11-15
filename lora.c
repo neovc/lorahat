@@ -700,7 +700,7 @@ handle_lora(const int fd, short which, void *arg)
 
 		lora_rpos += r;
 		if (lora_rpos > 4) {
-			if (lora_rbuf[3] <= (lora_rpos - 4)) {
+			if ((read_pin(AUX) > 0) || (lora_rbuf[3] <= (lora_rpos - 4))) { /* AUX LINE IS HIGH OR BUFFER FULL */
 				/* we got full lora message */
 				lora_rbuf[lora_rpos] = '\0';
 				printf("rx message: address %d, netid %d, len %d, \"%s\"\r\n", lora_rbuf[0] + (lora_rbuf[1] << 8), lora_rbuf[2], lora_rbuf[3], (char *)(lora_rbuf + 4));
