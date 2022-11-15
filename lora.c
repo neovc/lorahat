@@ -756,7 +756,9 @@ handle_lora(const int fd, short which, void *arg)
 				/* WHEN AUX LINE GOES HIGH, THERE MAY HAVE SOME DATA IN SERIAL, SO WE DON'T CHECK AUX HERE */
 				/* we got full lora message */
 				lora_rbuf[lora_rpos] = '\0';
-				printf("rx message: address %d, netid %d, len %d, \"%s\"\r\n", lora_rbuf[0] + (lora_rbuf[1] << 8), lora_rbuf[2], lora_rbuf[3], (char *)(lora_rbuf + 4));
+				if (verbose_mode)
+					hex_dump(lora_rbuf, lora_rpos, 1);
+				printf("rx message: address %d, netid %d, len %d, \"%s\"\r\n", ((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], lora_rbuf[3], (char *)(lora_rbuf + 4));
 				lora_rpos -= 4 + lora_rbuf[3];
 				if (lora_rpos > 0) {
 					/* keep unprocessed data */
@@ -798,7 +800,7 @@ send_handler(void *arg)
 				q[0] = ',';
 				q ++;
 				if (0 == evwrite_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (uint8_t *) q, strlen(q)))
-					printf("send \"%s\" to lorahat -> OK\r\n", q);
+					printf("send \"%s\" to lora #%d / %dMhz -> OK\r\n", q, tx_addr, tx_freq);
 			} else {
 				printf("bad cmd %c\r\n", msg[0]);
 			}
@@ -934,7 +936,7 @@ main(int argc, char **argv)
 					hex_dump(rx_buf, pos, 1);
 				if (pos > 3) {
 					rx_buf[pos] = '\0';
-					printf("rx message: address %d, netid %d, length %d, \"%s\"\r\n", rx_buf[0] + (rx_buf[1] << 8), rx_buf[2], rx_buf[3], (char *)(rx_buf + 4));
+					printf("rx message: address %d, netid %d, length %d, \"%s\"\r\n", (rx_buf[0] << 8) + rx_buf[1], rx_buf[2], rx_buf[3], (char *)(rx_buf + 4));
 					pos = 0;
 				}
 			} else {
