@@ -556,8 +556,8 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 	cfg_reg[11] = cryptkey & 0xff;
 
 	/* let lorahat enter config mode */
-	write_pin(M0, "0");
-	write_pin(M1, "1");
+	write_pin(M0, LOW);
+	write_pin(M1, HIGH);
 	usleep(100000); /* sleep 0.1s */
 
 	/* write to lorahat */
@@ -569,7 +569,7 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 	r = write(fd, cfg_reg, 12);
 	if (r != 12) {
 		/* write failed */
-		write_pin(M1, "0");
+		write_pin(M1, LOW);
 		fprintf(stderr, "write #12 cfg register to fd #%d failed, return %d\r\n", fd, r);
 		return -1;
 	}
@@ -577,8 +577,8 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 	usleep(200000); /* sleep 0.2s */
 	r = read(fd, buf, 12);
 
-	write_pin(M0, "0");
-	write_pin(M1, "0");
+	write_pin(M0, LOW);
+	write_pin(M1, LOW);
 
 	if (r < 12) {
 		fprintf(stderr, "read #12 bytes from fd #%d failed, return %d\r\n", fd, r);
@@ -857,25 +857,14 @@ main(int argc, char **argv)
 		}
 	}
 
-	/* open tty */
-	lora_fd = open_tty(lora_tty, bps, use_event);
-	if (lora_fd < 0) {
-		fprintf(stderr, "fail to open lorahat serial device %s\r\n", lora_tty);
-		return 1;
-	}
-
-	printf("open %s -> fd #%d\r\n", lora_tty, lora_fd);
-
 	if (setup_pin(M0, OUTPUT)) {
 		fprintf(stderr, "failed to set pin #%s-%s failed\r\n", M0, OUTPUT);
-		close(lora_fd);
 		return 1;
 	}
 
 	if (setup_pin(M1, OUTPUT)) {
 		fprintf(stderr, "failed to set pin #%s-%s failed\r\n", M1, OUTPUT);
 		release_pin(M0);
-		close(lora_fd);
 		return 1;
 	}
 
@@ -883,9 +872,29 @@ main(int argc, char **argv)
 		fprintf(stderr, "failed to set pin #%s-%s failed\r\n", AUX, INPUT);
 		release_pin(M0);
 		release_pin(M1);
-		close(lora_fd);
 		return 1;
 	}
+
+	/* put lorahat in deepsleep mode */
+	write_pin(M0, HIGH);
+	write_pin(M1, HIGH);
+	usleep(100000); /* sleep 0.1s */
+
+	/* to reset lorahat settings */
+	write_pin(M0, LOW);
+	write_pin(M1, LOW);
+	usleep(200000); /* sleep 0.2s */
+
+	/* open lorahat's tty */
+	lora_fd = open_tty(lora_tty, bps, use_event);
+	if (lora_fd < 0) {
+		fprintf(stderr, "fail to open lorahat serial device %s\r\n", lora_tty);
+		release_pin(M0);
+		release_pin(M1);
+		return 1;
+	}
+
+	printf("open %s -> fd #%d\r\n", lora_tty, lora_fd);
 
 	c = init_lorahat(lora_fd, bps, lora_freq, lora_addr, lora_netid, lora_power, lora_airspeed, lora_buffersize, lora_key);
 	printf("config lorahat -> %s\r\n", c == 0?"OK":"FAILED");
