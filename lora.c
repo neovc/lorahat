@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
+#include <pthread.h>
 
 #include <event.h> /* libevent */
 
@@ -751,7 +752,8 @@ handle_lora(const int fd, short which, void *arg)
 
 		lora_rpos += r;
 		if (lora_rpos > 4) {
-			if ((read_pin(AUX) > 0) || (lora_rbuf[3] <= (lora_rpos - 4))) { /* AUX LINE IS HIGH OR BUFFER FULL */
+			if (/* (read_pin(AUX) > 0) ||*/ (lora_rbuf[3] <= (lora_rpos - 4))) { /* BUFFER IS FULL */
+				/* WHEN AUX LINE GOES HIGH, THERE MAY HAVE SOME DATA IN SERIAL, SO WE DON'T CHECK AUX HERE */
 				/* we got full lora message */
 				lora_rbuf[lora_rpos] = '\0';
 				printf("rx message: address %d, netid %d, len %d, \"%s\"\r\n", lora_rbuf[0] + (lora_rbuf[1] << 8), lora_rbuf[2], lora_rbuf[3], (char *)(lora_rbuf + 4));
@@ -765,12 +767,52 @@ handle_lora(const int fd, short which, void *arg)
 	}
 }
 
+void *
+send_handler(void *arg)
+{
+	char msg[512];
+	char *p, *q;
+	int tx_freq, tx_addr, r;
+
+	while (1) {
+		printf("enter 's0,433,xxxx' to send message\r\n");
+		if (NULL != fgets(msg, 512, stdin)) {
+			if (msg[0] == 's' || msg[0] == 'S') {
+				/* send lora message */
+				r = strlen(msg) - 1;
+				if (r >= 0 && msg[r] == '\n')
+					msg[r] = '\0';
+
+				p = strchr(msg + 1, ',');
+				if (p == NULL)
+					continue;
+				p[0] = '\0';
+				tx_addr = atoi(msg + 1);
+				p[0] = ',';
+				p ++;
+				q = strchr(p, ',');
+				if (q == NULL)
+					continue;
+				q[0] = '\0';
+				tx_freq = atoi(p);
+				q[0] = ',';
+				q ++;
+				if (0 == evwrite_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (uint8_t *) q, strlen(q)))
+					printf("send \"%s\" to lorahat -> OK\r\n", q);
+			} else {
+				printf("bad cmd %c\r\n", msg[0]);
+			}
+		}
+	}
+}
+
 int
 main(int argc, char **argv)
 {
 	int c, pos = 0, r;
 	uint8_t rx_buf[512];
 	char msg[512];
+	pthread_t send_task;
 
 	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:ve")) != -1) {
 		switch (c) {
@@ -854,6 +896,9 @@ main(int argc, char **argv)
 				event_base_set(ev_base, &lora_event);
 				event_add(&lora_event, 0);
 				printf("enter event_loop()...\r\n");
+				pthread_create(&send_task, NULL, send_handler, NULL);
+				pthread_detach(send_task);
+				pthread_join(send_task, NULL);
 				event_base_dispatch(ev_base);
 				/* can't reach here */
 			} else {
@@ -863,7 +908,7 @@ main(int argc, char **argv)
 
 		/* blocked version */
 		printf("try to rx at %dM, addr %d, netid %d\r\n", lora_freq, lora_addr, lora_netid);
-		printf("press 's0,433,xxxx' and enter to send message\r\n");
+		printf("enter 's0,433,xxxx' to send message\r\n");
 		while (1) {
 			/* try to read from loarhat */
 			c = -1;
@@ -905,7 +950,7 @@ main(int argc, char **argv)
 								printf("write %s to lorahat -> OK\r\n", msg);
 							}
 						}
-						printf("press 's0,433,xxxx' and enter to send message\r\n");
+						printf("enter 's0,433,xxxx' to send message\r\n");
 					} else if (c == 'T' || c == 't') {
 						/* try to send hex data to lorahat */
 						strcpy(msg, "0,433,abcdef");
