@@ -32,7 +32,7 @@
 int bps = 115200, lora_airspeed = 38400, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
 uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
-int lora_fd = -1;
+int lora_fd = -1, blocksize = 200;
 
 struct event_base *ev_base = NULL;
 struct event lora_event;
@@ -89,6 +89,7 @@ print_help(void)
 	       " -p power, set lora tx power in dBm, default is 22dBm\r\n"
 	       " -z size, set lorahat serial buffer size, default is 1000 Bytes\r\n"
 	       " -k key, set lora crypt key, default is 0, don't crypt\r\n"
+	       " -B blocksize, set lora file transfer block size, default is 200\r\n"
 	       " -v, verbose mode\r\n"
 	      );
 	exit(0);
@@ -836,8 +837,6 @@ rxfile(uint8_t *payload, int len)
 	return 0;
 }
 
-#define BLOCKSIZE 200
-
 /* return 0 if SEND OK
  * return -1 if SEND FAILED
  */
@@ -866,8 +865,8 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 	start = time(NULL);
 	snprintf(name, 9, "%d", (int) random());
 	while (pos < size) {
-		if ((size - pos) > BLOCKSIZE)
-			len = BLOCKSIZE;
+		if ((size - pos) > blocksize)
+			len = blocksize;
 		else
 			len = size - pos;
 
@@ -1040,7 +1039,7 @@ main(int argc, char **argv)
 	int c, default_bps = 9600;
 	pthread_t send_task;
 
-	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:v")) != -1) {
+	while ((c = getopt(argc, argv, "a:A:b:B:z:s:p:n:k:f:v")) != -1) {
 		switch (c) {
 			case 'v':
 				verbose_mode = 1;
@@ -1053,6 +1052,9 @@ main(int argc, char **argv)
 				break;
 			case 'b':
 				bps = atoi(optarg);
+				break;
+			case 'B':
+				blocksize = atoi(optarg);
 				break;
 			case 'z':
 				lora_buffersize = atoi(optarg);
