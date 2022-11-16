@@ -716,7 +716,7 @@ evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint
 	uint8_t tx_buf[512];
 	int r, pos = 0;
 
-	if (fd < 0 || payload == NULL || payload[0] == '\0' || len <= 0 || len > 250)
+	if (fd < 0 || payload == NULL || len <= 0 || len > 250)
 		return -1;
 
 	tx_buf[0] = (tx_addr >> 8) & 0xff;
@@ -760,6 +760,77 @@ evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint
 		}
 	}
 	return 0;
+}
+
+struct filecmd {
+	char name[8]; /* 8 chars filename, just for test */
+	int pos;
+};
+
+#define BLOCKSIZE 200
+
+/* return 0 if SEND OK
+ * return -1 if SEND FAILED
+ */
+int
+sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, char *file)
+{
+	FILE *fp;
+	uint8_t payload[512];
+	int pos = 0, size, r = 0, len, bps;
+	char name[9];
+	time_t start, end;
+	struct filecmd c;
+
+	if (file == NULL || file[0] == '\0')
+		return -1;
+
+	fp = fopen(file, "rb");
+	if (fp == NULL) {
+		fprintf(stderr, "can't open %s, %s\r\n", file, strerror(errno));
+		return -1;
+	}
+
+	fseek(fp, 0, SEEK_END);
+	size = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+	start = time(NULL);
+	snprintf(name, 9, "%d", (int) start);
+	while (pos < size) {
+		if ((size - pos) > BLOCKSIZE)
+			len = BLOCKSIZE;
+		else
+			len = size - pos;
+
+		if (len != fread(payload + sizeof(c), 1, len, fp)) {
+			fprintf(stderr, "read #%d from %s at pos %d failed, %s\r\n", len, file, pos, strerror(errno));
+			r = 1;
+			break;
+		}
+		c.pos = pos;
+		memcpy(c.name, name, 8);
+		memcpy(payload, &c, sizeof(c));
+		while (read_pin(AUX) == 0) {
+			usleep(1000); /* sleep 1ms before AUX goes to high */
+		}
+		if (-1 == evwrite_lorahat(fd, rx_freq, rx_addr, tx_freq, tx_addr, payload, len + sizeof(c), LORA_FILE)) {
+			fprintf(stderr, "write to lorahat at #%d failed\r\n", pos);
+			r = -1;
+			break;
+		}
+		usleep(1000); /* sleep 1ms to wait lorahat to complete operation */
+		pos += len;
+	}
+
+	end = time(NULL);
+	if (end == start) {
+		bps = pos * 8;
+	} else {
+		bps = pos * 8 / (end - start);
+	}
+	printf("sending %d/%d data to lora takes %d seconds, %dbps\r\n", pos, size, (int) (end - start), bps);
+	fclose(fp);
+	return r;
 }
 
 void
@@ -822,30 +893,34 @@ send_handler(void *arg)
 	int tx_freq, tx_addr, r;
 
 	while (1) {
-		printf("enter 's0,433,xxxx' to send message\r\n");
+		printf("enter '[s|t]0,433,xxxx' to send message\r\n");
 		if (NULL != fgets(msg, 512, stdin)) {
-			if (msg[0] == 's' || msg[0] == 'S') {
-				/* send lora message */
-				r = strlen(msg) - 1;
-				if (r >= 0 && msg[r] == '\n')
-					msg[r] = '\0';
+			/* parse address,freq string first */
+			r = strlen(msg) - 1;
+			if (r >= 0 && msg[r] == '\n')
+				msg[r] = '\0';
 
-				p = strchr(msg + 1, ',');
-				if (p == NULL)
-					continue;
-				p[0] = '\0';
-				tx_addr = atoi(msg + 1);
-				p[0] = ',';
-				p ++;
-				q = strchr(p, ',');
-				if (q == NULL)
-					continue;
-				q[0] = '\0';
-				tx_freq = atoi(p);
-				q[0] = ',';
-				q ++;
+			p = strchr(msg + 1, ',');
+			if (p == NULL)
+				continue;
+			p[0] = '\0';
+			tx_addr = atoi(msg + 1);
+			p[0] = ',';
+			p ++;
+			q = strchr(p, ',');
+			if (q == NULL)
+				continue;
+			q[0] = '\0';
+			tx_freq = atoi(p);
+			q[0] = ',';
+			q ++;
+
+			if (msg[0] == 's' || msg[0] == 'S') {
+				/* send lora txt message */
 				if (0 == evwrite_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (uint8_t *) q, strlen(q), LORA_TEXT))
 					printf("send \"%s\" to lora #%d / %dMhz -> OK\r\n", q, tx_addr, tx_freq);
+			} else if (msg[0] == 't' || msg[0] == 'T') {
+				sendfile_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (char *) q);
 			} else {
 				printf("bad cmd %c\r\n", msg[0]);
 			}
