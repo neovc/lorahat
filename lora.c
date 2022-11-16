@@ -26,11 +26,10 @@
  *  -p tx power
  *  -z buffer size
  *  -k crypt key
- *  -e libevent mode
  *  -v verbose, print rssi & other infos
  */
 
-int bps = 9600, lora_airspeed = 9600, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0, use_event = 0;
+int bps = 9600, lora_airspeed = 9600, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
 uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
 int lora_fd = -1;
@@ -85,7 +84,6 @@ print_help(void)
 	       " -p power, set lora tx power in dBm, default is 22dBm\r\n"
 	       " -z size, set lorahat serial buffer size, default is 1000 Bytes\r\n"
 	       " -k key, set lora crypt key, default is 0, don't crypt\r\n"
-	       " -e, libevent mode\r\n"
 	       " -v, verbose mode\r\n"
 	      );
 	exit(0);
@@ -811,12 +809,10 @@ send_handler(void *arg)
 int
 main(int argc, char **argv)
 {
-	int c, pos = 0, r, default_bps = 9600;
-	uint8_t rx_buf[512];
-	char msg[512];
+	int c, default_bps = 9600;
 	pthread_t send_task;
 
-	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:ve")) != -1) {
+	while ((c = getopt(argc, argv, "a:A:b:z:s:p:n:k:f:v")) != -1) {
 		switch (c) {
 			case 'v':
 				verbose_mode = 1;
@@ -847,9 +843,6 @@ main(int argc, char **argv)
 				break;
 			case 'f':
 				lora_freq = atoi(optarg);
-				break;
-			case 'e':
-				use_event = 1;
 				break;
 			default:
 				print_help();
@@ -886,7 +879,7 @@ main(int argc, char **argv)
 	usleep(200000); /* sleep 0.2s */
 
 	/* open lorahat's tty */
-	lora_fd = open_tty(lora_tty, default_bps, use_event);
+	lora_fd = open_tty(lora_tty, default_bps, 1);
 	if (lora_fd < 0) {
 		fprintf(stderr, "fail to open lorahat serial device %s\r\n", lora_tty);
 		release_pin(M0);
@@ -903,7 +896,7 @@ main(int argc, char **argv)
 		if (default_bps != bps) {
 			/* we need to reconnect lorahat's tty */
 			close(lora_fd);
-			lora_fd = open_tty(lora_tty, bps, use_event);
+			lora_fd = open_tty(lora_tty, bps, 1);
 			if (lora_fd < 0) {
 				fprintf(stderr, "fail to re-open lorahat serial device %s/%dbps\r\n", lora_tty, bps);
 				release_pin(M0);
@@ -913,83 +906,19 @@ main(int argc, char **argv)
 			printf("reopen %s - #%d bps -> fd #%d\r\n", lora_tty, bps, lora_fd);
 		}
 
-		if (use_event == 1) {
-			ev_base = event_base_new();
-			if (ev_base != NULL) {
-				event_set(&lora_event, lora_fd, EV_READ | EV_PERSIST, handle_lora, NULL);
-				event_base_set(ev_base, &lora_event);
-				event_add(&lora_event, 0);
-				printf("enter event_loop()...\r\n");
-				pthread_create(&send_task, NULL, send_handler, NULL);
-				pthread_detach(send_task);
-				pthread_join(send_task, NULL);
-				event_base_dispatch(ev_base);
-				/* can't reach here */
-			} else {
-				fprintf(stderr, "can't allocate event_base\r\n");
-			}
-		}
-
-		/* blocked version */
-		printf("try to rx at %dM, addr %d, netid %d\r\n", lora_freq, lora_addr, lora_netid);
-		printf("enter 's0,433,xxxx' to send message\r\n");
-		while (1) {
-			/* try to read from loarhat */
-			c = -1;
-			if (ioctl(lora_fd, FIONREAD, &c)) {
-				if (errno != EAGAIN && errno != EINTR) {
-					fprintf(stderr, "ioctl(#%d, FIONREAD) failed, %s\r\n", lora_fd, strerror(errno));
-					break;
-				} else {
-					c = -1;
-				}
-			} else {
-				// if (c > 0) fprintf(stderr, "ioctl(#%d, FIONREAD) return %d -> OK\r\n", lora_fd, c);
-			}
-
-			if (c > 0) {
-				r = read(lora_fd, rx_buf + pos, c);
-				if (r < 0) {
-					fprintf(stderr, "read from fd %d return %d, %s\r\n", lora_fd, r, strerror(errno));
-					break;
-				}
-				pos += r;
-				if (verbose_mode)
-					hex_dump(rx_buf, pos, 1);
-				if (pos > 3) {
-					rx_buf[pos] = '\0';
-					printf("rx message: address %d, netid %d, length %d, \"%s\"\r\n", (rx_buf[0] << 8) + rx_buf[1], rx_buf[2], rx_buf[3], (char *)(rx_buf + 4));
-					pos = 0;
-				}
-			} else {
-				/* try to read from stdin */
-				if (0 == ioctl(0, FIONREAD, &c) && c > 0) {
-					c = getchar();
-					if (c == 'S' || c == 's') {
-						if (NULL != fgets(msg, 512, stdin)) {
-							r = strlen(msg) - 1;
-							if (r >= 0 && msg[r] == '\n')
-								msg[r] = '\0';
-							if (0 == write_lorahat(lora_fd, lora_freq, lora_addr, msg, strlen(msg))) {
-								printf("write %s to lorahat -> OK\r\n", msg);
-							}
-						}
-						printf("enter 's0,433,xxxx' to send message\r\n");
-					} else if (c == 'T' || c == 't') {
-						/* try to send hex data to lorahat */
-						strcpy(msg, "0,433,abcdef");
-						r = strlen(msg);
-						msg[r ++] = '\0';
-						msg[r ++] = 0xff;
-						msg[r ++] = 0xab;
-						if (0 == write_lorahat(lora_fd, lora_freq, lora_addr, msg, r)) {
-							printf("write hex %s to lorahat -> OK\r\n", msg);
-						}
-					}
-				}
-			}
-
-			usleep(500000); /* sleep 0.5s */
+		ev_base = event_base_new();
+		if (ev_base != NULL) {
+			event_set(&lora_event, lora_fd, EV_READ | EV_PERSIST, handle_lora, NULL);
+			event_base_set(ev_base, &lora_event);
+			event_add(&lora_event, 0);
+			printf("enter event_loop()...\r\n");
+			pthread_create(&send_task, NULL, send_handler, NULL);
+			pthread_detach(send_task);
+			pthread_join(send_task, NULL);
+			event_base_dispatch(ev_base);
+			/* can't reach here */
+		} else {
+			fprintf(stderr, "can't allocate event_base\r\n");
 		}
 	}
 	release_pin(M0);
