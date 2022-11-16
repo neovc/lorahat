@@ -44,6 +44,10 @@ int lora_rpos = 0, lora_rsize = 512;
 #define M1 "27"
 #define AUX "4"
 
+#define LORA_TEXT 0
+#define LORA_BINARY 1
+#define LORA_FILE 2
+
 #define SX126X_UART_BAUDRATE_1200 0x00
 #define SX126X_UART_BAUDRATE_2400 0x20
 #define SX126X_UART_BAUDRATE_4800 0x40
@@ -707,7 +711,7 @@ read_buffer(int fd, uint8_t *b, int max_buf_len)
  * return -1 if FAILED
  */
 int
-evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint8_t *payload, int len)
+evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint8_t *payload, int len, uint8_t type)
 {
 	uint8_t tx_buf[512];
 	int r, pos = 0;
@@ -737,12 +741,13 @@ evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint
 		tx_buf[5] = 0;
 	}
 
-	tx_buf[6] = (len & 0xff) + 1; /* prepend length before payload message */
-	memcpy(tx_buf + 7, payload, len);
+	tx_buf[6] = (len & 0xff) + 2; /* prepend length before payload message */
+	tx_buf[7] = type;
+	memcpy(tx_buf + 8, payload, len);
 	/* append sum of buffer */
-	tx_buf[7 + len] = sumofbuffer(payload, len);
-	tx_buf[8 + len] = '\0';
-	len += 8;
+	tx_buf[8 + len] = sumofbuffer(payload, len) + type;
+	tx_buf[9 + len] = '\0';
+	len += 9;
 
 	/* we need to write all data to lorahat here */
 	while (pos < len) {
@@ -761,7 +766,7 @@ void
 handle_lora(const int fd, short which, void *arg)
 {
 	int r, last;
-	uint8_t sum;
+	uint8_t sum, type, len;
 
 	if (which & EV_READ) {
 		r = read_buffer(fd, lora_rbuf + lora_rpos, lora_rsize - lora_rpos);
@@ -769,19 +774,35 @@ handle_lora(const int fd, short which, void *arg)
 			return;
 
 		lora_rpos += r;
-		if (lora_rpos > 4) {
+		if (lora_rpos > 5) {
 			if (/* (read_pin(AUX) > 0) ||*/ (lora_rbuf[3] <= (lora_rpos - 4))) { /* BUFFER IS FULL */
 				/* WHEN AUX LINE GOES HIGH, THERE MAY HAVE SOME DATA IN SERIAL, SO WE DON'T CHECK AUX HERE */
 				/* we got full lora message */
+				/* [ADDR HIGH][ADDR LOW][NETID][LEN][TYPE][PAYLOAD][SUM]
+				 * LEN = SIZEOF(PAYLOAD) + 1 + 1
+				 */
 				lora_rbuf[lora_rpos] = '\0';
 				if (verbose_mode)
 					hex_dump(lora_rbuf, lora_rpos, 1);
-				sum = sumofbuffer(lora_rbuf + 4, lora_rbuf[3] - 1);
-				last = lora_rbuf[3] + 4 - 1;
-				printf("rx message: address %d, netid %d, len %d, \"%s\" -> SUM %s\r\n",
+				len = lora_rbuf[3];
+				type = lora_rbuf[4];
+				sum = sumofbuffer(lora_rbuf + 4, len - 1);
+				last = len + 4 - 1;
+
+				if (sum != lora_rbuf[last]) {
+					printf("lora msg mismatched CALC 0x%x != DATA 0x%x\r\n", sum, lora_rbuf[last]);
+				} else if (type == LORA_TEXT) {
+					printf("rx txt msg: address %d, netid %d, len %d, \"%s\"\r\n",
 						((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], lora_rbuf[3],
-						(char *)(lora_rbuf + 4), (sum == lora_rbuf[last])?"OK":"FAILED");
-				lora_rpos -= 4 + lora_rbuf[3];
+						(char *)(lora_rbuf + 5));
+				} else if (type == LORA_BINARY) {
+					printf("rx binary msg:\r\n");
+					hex_dump(lora_rbuf + 5, len - 2, 0);
+				} else if (type == LORA_FILE) {
+					printf("rx file msg:\r\n");
+				}
+
+				lora_rpos -= 4 + len;
 				if (lora_rpos > 0) {
 					/* keep unprocessed data */
 					memmove (lora_rbuf, lora_rbuf + 4 + lora_rbuf[3], lora_rpos);
@@ -821,7 +842,7 @@ send_handler(void *arg)
 				tx_freq = atoi(p);
 				q[0] = ',';
 				q ++;
-				if (0 == evwrite_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (uint8_t *) q, strlen(q)))
+				if (0 == evwrite_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (uint8_t *) q, strlen(q), LORA_TEXT))
 					printf("send \"%s\" to lora #%d / %dMhz -> OK\r\n", q, tx_addr, tx_freq);
 			} else {
 				printf("bad cmd %c\r\n", msg[0]);
