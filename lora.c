@@ -1057,6 +1057,8 @@ main(int argc, char **argv)
 				break;
 			case 'B':
 				blocksize = atoi(optarg);
+				if (blocksize > 217)
+					blocksize = 217; /* max 217 */
 				break;
 			case 'z':
 				lora_buffersize = atoi(optarg);
