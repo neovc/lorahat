@@ -766,7 +766,7 @@ void
 handle_lora(const int fd, short which, void *arg)
 {
 	int r, last;
-	uint8_t sum, type, len;
+	uint8_t calc_sum, sum, type, len;
 
 	if (which & EV_READ) {
 		r = read_buffer(fd, lora_rbuf + lora_rpos, lora_rsize - lora_rpos);
@@ -786,14 +786,16 @@ handle_lora(const int fd, short which, void *arg)
 					hex_dump(lora_rbuf, lora_rpos, 1);
 				len = lora_rbuf[3];
 				type = lora_rbuf[4];
-				sum = sumofbuffer(lora_rbuf + 4, len - 1);
+				calc_sum = sumofbuffer(lora_rbuf + 4, len - 1);
 				last = len + 4 - 1;
+				sum = lora_rbuf[last];
+				lora_rbuf[last] = '\0'; /* clear sum of buffer */
 
-				if (sum != lora_rbuf[last]) {
-					printf("lora msg mismatched CALC 0x%x != DATA 0x%x\r\n", sum, lora_rbuf[last]);
+				if (calc_sum != sum) {
+					printf("lora msg mismatched CALC 0x%x != DATA 0x%x\r\n", calc_sum, sum);
 				} else if (type == LORA_TEXT) {
 					printf("rx txt msg: address %d, netid %d, len %d, \"%s\"\r\n",
-						((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], lora_rbuf[3],
+						((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], len - 2,
 						(char *)(lora_rbuf + 5));
 				} else if (type == LORA_BINARY) {
 					printf("rx binary msg:\r\n");
