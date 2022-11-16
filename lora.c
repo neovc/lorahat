@@ -1114,7 +1114,7 @@ main(int argc, char **argv)
 	printf("open %s - default #%d bps -> fd #%d\r\n", lora_tty, default_bps, lora_fd);
 
 	c = init_lorahat(lora_fd, bps, lora_freq, lora_addr, lora_netid, lora_power, lora_airspeed, lora_buffersize, lora_key);
-	printf("config lorahat at %d bps -> %s\r\n", bps, c == 0?"OK":"FAILED");
+	printf("config lorahat at %d bps, lora airspeed %dbps -> %s\r\n", bps, lora_airspeed, c == 0?"OK":"FAILED");
 
 	if (c == 0) {
 		if (default_bps != bps) {
