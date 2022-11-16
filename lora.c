@@ -29,7 +29,7 @@
  *  -v verbose, print rssi & other infos
  */
 
-int bps = 9600, lora_airspeed = 9600, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
+int bps = 19200, lora_airspeed = 38400, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
 uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
 int lora_fd = -1;
