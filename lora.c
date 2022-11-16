@@ -887,7 +887,6 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 			r = -1;
 			break;
 		}
-		pos += len;
 		k = 0;
 		/* AUX -> LOW indicates beginning of LORA TX
 		 *  ... LORA TXing ...
@@ -904,6 +903,7 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 		}
 		usleep(1000);
 		printf("send #%d at pos %d data to lorahat -> OK, %dms\r\n", len, pos, k);
+		pos += len;
 	}
 
 	end = time(NULL);
