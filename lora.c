@@ -47,6 +47,7 @@ int lora_rpos = 0, lora_rsize = 512;
 #define LORA_TEXT 0
 #define LORA_BINARY 1
 #define LORA_FILE 2
+#define LORA_MAGIC 0xEB90
 
 #define SX126X_UART_BAUDRATE_1200 0x00
 #define SX126X_UART_BAUDRATE_2400 0x20
@@ -741,13 +742,17 @@ evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint
 		tx_buf[5] = 0;
 	}
 
-	tx_buf[6] = (len & 0xff) + 2; /* prepend length before payload message */
-	tx_buf[7] = type;
-	memcpy(tx_buf + 8, payload, len);
+	/* add LORA MAGIC HERE */
+	tx_buf[6] = (LORA_MAGIC >> 8) & 0xff;
+	tx_buf[7] = LORA_MAGIC & 0xff;
+
+	tx_buf[8] = (len & 0xff) + 2; /* prepend length before payload message */
+	tx_buf[9] = type;
+	memcpy(tx_buf + 10, payload, len);
 	/* append sum of buffer */
-	tx_buf[8 + len] = sumofbuffer(payload, len) + type;
-	tx_buf[9 + len] = '\0';
-	len += 9;
+	tx_buf[10 + len] = sumofbuffer(payload, len) + type;
+	tx_buf[11 + len] = '\0';
+	len += 11;
 
 	/* we need to write all data to lorahat here */
 	while (pos < len) {
@@ -873,7 +878,7 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 void
 handle_lora(const int fd, short which, void *arg)
 {
-	int r, last;
+	int r, last, start;
 	uint8_t calc_sum, sum, type, len;
 
 	if (which & EV_READ) {
@@ -882,41 +887,63 @@ handle_lora(const int fd, short which, void *arg)
 			return;
 
 		lora_rpos += r;
-		if (lora_rpos > 5) {
-			if (/* (read_pin(AUX) > 0) ||*/ (lora_rbuf[3] <= (lora_rpos - 4))) { /* BUFFER IS FULL */
-				/* WHEN AUX LINE GOES HIGH, THERE MAY HAVE SOME DATA IN SERIAL, SO WE DON'T CHECK AUX HERE */
-				/* we got full lora message */
-				/* [ADDR HIGH][ADDR LOW][NETID][LEN][TYPE][PAYLOAD][SUM]
-				 * LEN = SIZEOF(PAYLOAD) + 1 + 1
-				 */
-				lora_rbuf[lora_rpos] = '\0';
-				if (verbose_mode)
-					hex_dump(lora_rbuf, lora_rpos, 1);
-				len = lora_rbuf[3];
-				type = lora_rbuf[4];
-				calc_sum = sumofbuffer(lora_rbuf + 4, len - 1);
-				last = len + 4 - 1;
-				sum = lora_rbuf[last];
-				lora_rbuf[last] = '\0'; /* clear sum of buffer */
+		if (lora_rpos > 7) {
+			/* to find LORAMAGIC 0xeb90 */
+			lora_rbuf[lora_rpos] = '\0';
+			r = find_magic(lora_rbuf, lora_rpos, LORA_MAGIC, &start);
+			if (r == 1) {
+				/* NO LORA_MAGIC FOUND */
+				return;
+			}
 
-				if (calc_sum != sum) {
-					printf("lora msg mismatched CALC 0x%x != DATA 0x%x\r\n", calc_sum, sum);
-				} else if (type == LORA_TEXT) {
-					printf("rx txt msg: address %d, netid %d, len %d, \"%s\"\r\n",
-						((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], len - 2,
-						(char *)(lora_rbuf + 5));
-				} else if (type == LORA_BINARY) {
-					printf("rx binary msg:\r\n");
-					hex_dump(lora_rbuf + 5, len - 2, 0);
-				} else if (type == LORA_FILE) {
-					rxfile(lora_rbuf + 5, len - 2);
-				}
+			if (start < 3) {
+				/* not enough prefix for full message */
+				/* skip this magic word */
+				memmove (lora_rbuf, lora_rbuf + start + 2, lora_rpos - start - 2);
+				lora_rpos -= start + 2;
+				return;
+			}
 
-				lora_rpos -= 4 + len;
-				if (lora_rpos > 0) {
-					/* keep unprocessed data */
-					memmove (lora_rbuf, lora_rbuf + 4 + lora_rbuf[3], lora_rpos);
-				}
+			if (start > 3) {
+				/* move data to pos 0 */
+				memmove (lora_rbuf, lora_rbuf + start - 3, lora_rpos - start + 3);
+				lora_rpos -= start - 3;
+			}
+
+			if ((lora_rpos < 8) || (lora_rpos < (lora_rbuf[5] + 6))) {
+				/* not full message */
+				return;
+			}
+
+			/* [ADDR HIGH][ADDR LOW][NETID][0xEB][0x90][LEN][TYPE][PAYLOAD][SUM]
+			 * LEN = SIZEOF(PAYLOAD) + 1 + 1
+			 */
+			if (verbose_mode)
+				hex_dump(lora_rbuf, lora_rpos, 1);
+			len = lora_rbuf[5];
+			type = lora_rbuf[6];
+			calc_sum = sumofbuffer(lora_rbuf + 6, len - 1);
+			last = len + 6 - 1;
+			sum = lora_rbuf[last];
+			lora_rbuf[last] = '\0'; /* clear sum of buffer */
+
+			if (calc_sum != sum) {
+				printf("lora msg mismatched CALC 0x%x != DATA 0x%x\r\n", calc_sum, sum);
+			} else if (type == LORA_TEXT) {
+				printf("rx txt msg: address %d, netid %d, len %d, \"%s\"\r\n",
+					((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], len - 2,
+					(char *)(lora_rbuf + 7));
+			} else if (type == LORA_BINARY) {
+				printf("rx binary msg:\r\n");
+				hex_dump(lora_rbuf + 7, len - 2, 0);
+			} else if (type == LORA_FILE) {
+				rxfile(lora_rbuf + 7, len - 2);
+			}
+
+			lora_rpos -= 6 + len;
+			if (lora_rpos > 0) {
+				/* keep unprocessed data */
+				memmove (lora_rbuf, lora_rbuf + 6 + len, lora_rpos);
 			}
 		}
 	}
