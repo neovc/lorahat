@@ -767,6 +767,43 @@ struct filecmd {
 	int pos;
 };
 
+/* return 0 if OK
+ * return -1 if FAILED
+ */
+int
+rxfile(uint8_t *payload, int len)
+{
+	char name[9];
+	int pos;
+	FILE *fp;
+
+	if (payload == NULL || len <= sizeof(struct filecmd))
+		return -1;
+
+	memcpy(name, payload, 8);
+	name[8] = '\0';
+	memcpy(&pos, payload + 8, sizeof(pos));
+
+	fp = fopen(name, "wb");
+	if (fp == NULL) {
+		fprintf(stderr, "can't write to file %s, %s\r\n", name, strerror(errno));
+		return -1;
+	}
+
+	fseek(fp, pos, SEEK_SET);
+
+	len -= sizeof(struct filecmd);
+	if (len != fwrite(payload + sizeof(struct filecmd), 1, len, fp)) {
+		fprintf(stderr, "write #%d data at pos %d to file %s failed, %s\r\n", len, pos, name, strerror(errno));
+		fclose(fp);
+		return -1;
+	}
+	fclose(fp);
+	if (verbose_mode)
+		printf("write #%d data at pos %d to file %s -> OK\r\n", len, pos, name);
+	return 0;
+}
+
 #define BLOCKSIZE 200
 
 /* return 0 if SEND OK
@@ -804,14 +841,14 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 
 		if (len != fread(payload + sizeof(c), 1, len, fp)) {
 			fprintf(stderr, "read #%d from %s at pos %d failed, %s\r\n", len, file, pos, strerror(errno));
-			r = 1;
+			r = -1;
 			break;
 		}
 		c.pos = pos;
 		memcpy(c.name, name, 8);
 		memcpy(payload, &c, sizeof(c));
 		while (read_pin(AUX) == 0) {
-			usleep(1000); /* sleep 1ms before AUX goes to high */
+			usleep(100); /* sleep 0.1ms before AUX goes to high */
 		}
 		if (-1 == evwrite_lorahat(fd, rx_freq, rx_addr, tx_freq, tx_addr, payload, len + sizeof(c), LORA_FILE)) {
 			fprintf(stderr, "write to lorahat at #%d failed\r\n", pos);
@@ -873,6 +910,7 @@ handle_lora(const int fd, short which, void *arg)
 					hex_dump(lora_rbuf + 5, len - 2, 0);
 				} else if (type == LORA_FILE) {
 					printf("rx file msg:\r\n");
+					rxfile(lora_rbuf + 5, len - 2);
 				}
 
 				lora_rpos -= 4 + len;
