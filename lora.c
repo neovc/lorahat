@@ -842,7 +842,7 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 {
 	FILE *fp;
 	uint8_t payload[512];
-	int pos = 0, size, r = 0, len, bps;
+	int pos = 0, size, r = 0, len, bps, k;
 	char name[9];
 	time_t start, end;
 	struct filecmd c;
@@ -883,9 +883,23 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 			r = -1;
 			break;
 		}
-		usleep(1000); /* sleep 1ms to wait lorahat to complete operation */
-		printf("send #%d at pos %d data to lorahat -> OK\r\n", len, pos);
 		pos += len;
+		k = 0;
+		/* AUX -> LOW indicates beginning of LORA TX
+		 *  ... LORA TXing ...
+		 * AUX -> HIGH indicated end of LORA TX
+		 * wait for 1ms make sure TX is stopped
+		 */
+		while (read_pin(AUX) == 1) {
+			usleep(1000); /* sleep 1ms before AUX goes to low */
+			k += 1;
+		}
+		while (read_pin(AUX) == 0) {
+			usleep(1000); /* sleep 1ms before AUX goes to HIGH */
+			k += 1;
+		}
+		usleep(1000);
+		printf("send #%d at pos %d data to lorahat -> OK, %dms\r\n", len, pos, k);
 	}
 
 	end = time(NULL);
