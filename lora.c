@@ -708,6 +708,30 @@ read_buffer(int fd, uint8_t *b, int max_buf_len)
 	return r;
 }
 
+/* return -2 if EOF
+ * return -1 if failed
+ * return 0 if there has no data to read at this time
+ * return > 0 if success
+ */
+int
+read_tty(int fd, uint8_t *b, int len)
+{
+	int r;
+
+	if (fd <= 0 || b == NULL || len <= 0) return -1;
+
+	if (len > 8)
+		len = 8;
+	r = read(fd, b, len);
+	if ((r == -1 && (errno != EINTR && errno != EAGAIN)) || r == 0) {
+		/* connection closed or reset */
+		if (r == 0) return -2; /* EOF */
+		return -1;
+	}
+
+	return r;
+}
+
 /* return 0 if OK
  * return -1 if FAILED
  */
@@ -882,7 +906,7 @@ handle_lora(const int fd, short which, void *arg)
 	uint8_t calc_sum, sum, type, len;
 
 	if (which & EV_READ) {
-		r = read_buffer(fd, lora_rbuf + lora_rpos, lora_rsize - lora_rpos);
+		r = read_tty(fd, lora_rbuf + lora_rpos, lora_rsize - lora_rpos);
 		if (r < 0)
 			return;
 
