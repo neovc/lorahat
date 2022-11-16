@@ -813,7 +813,10 @@ rxfile(uint8_t *payload, int len)
 	name[8] = '\0';
 	memcpy(&pos, payload + 8, sizeof(pos));
 
-	fp = fopen(name, "ab"); /* append file, don't overwrite file */
+	if (pos == 0)
+		fp = fopen(name, "wb"); /* overwrite file */
+	else
+		fp = fopen(name, "ab"); /* append file, don't overwrite file */
 	if (fp == NULL) {
 		fprintf(stderr, "can't write to file %s, %s\r\n", name, strerror(errno));
 		return -1;
@@ -827,6 +830,7 @@ rxfile(uint8_t *payload, int len)
 		fclose(fp);
 		return -1;
 	}
+	fflush(fp);
 	fclose(fp);
 	printf("write #%d data at pos %d to file %s -> OK\r\n", len, pos, name);
 	return 0;
