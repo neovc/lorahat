@@ -969,6 +969,8 @@ handle_lora(const int fd, short which, void *arg)
 			lora_rbuf[last] = '\0'; /* clear sum of buffer */
 
 			if (calc_sum != sum) {
+				lora_rbuf[last] = sum;
+				hex_dump(lora_rbuf, lora_rsize, 1);
 				printf("lora msg mismatched CALC 0x%x != DATA 0x%x\r\n", calc_sum, sum);
 			} else if (type == LORA_TEXT) {
 				printf("rx txt msg: address %d, netid %d, len %d, \"%s\"\r\n",
