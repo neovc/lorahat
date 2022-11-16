@@ -590,6 +590,22 @@ init_lorahat(int fd, int baud, int rx_freq, int rx_addr, int rx_netid, int tx_po
 	return 0;
 }
 
+uint8_t
+sumofbuffer(uint8_t *src, int len)
+{
+	uint8_t c = 0;
+	int i;
+
+	if (src == NULL || len <= 0)
+		return 0;
+
+	for (i = 0; i < len; i ++)
+		c += src[i];
+
+	return c;
+}
+
+#if 0
 /* return 0 if OK
  * return -1 if FAILED
  */
@@ -653,6 +669,7 @@ write_lorahat(int fd, int rx_freq, int rx_addr, char *msg, int len)
 	}
 	return 0;
 }
+#endif
 
 /* return -2 if EOF
  * return -1 if failed
@@ -695,7 +712,7 @@ evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint
 	uint8_t tx_buf[512];
 	int r, pos = 0;
 
-	if (fd < 0 || payload == NULL || payload[0] == '\0' || len <= 0)
+	if (fd < 0 || payload == NULL || payload[0] == '\0' || len <= 0 || len > 250)
 		return -1;
 
 	tx_buf[0] = (tx_addr >> 8) & 0xff;
@@ -720,10 +737,12 @@ evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint
 		tx_buf[5] = 0;
 	}
 
-	tx_buf[6] = len & 0xff; /* prepend length before payload message */
+	tx_buf[6] = (len & 0xff) + 1; /* prepend length before payload message */
 	memcpy(tx_buf + 7, payload, len);
-	tx_buf[7 + len] = '\0';
-	len += 7;
+	/* append sum of buffer */
+	tx_buf[7 + len] = sumofbuffer(payload, len);
+	tx_buf[8 + len] = '\0';
+	len += 8;
 
 	/* we need to write all data to lorahat here */
 	while (pos < len) {
@@ -741,7 +760,8 @@ evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint
 void
 handle_lora(const int fd, short which, void *arg)
 {
-	int r;
+	int r, last;
+	uint8_t sum;
 
 	if (which & EV_READ) {
 		r = read_buffer(fd, lora_rbuf + lora_rpos, lora_rsize - lora_rpos);
@@ -756,7 +776,11 @@ handle_lora(const int fd, short which, void *arg)
 				lora_rbuf[lora_rpos] = '\0';
 				if (verbose_mode)
 					hex_dump(lora_rbuf, lora_rpos, 1);
-				printf("rx message: address %d, netid %d, len %d, \"%s\"\r\n", ((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], lora_rbuf[3], (char *)(lora_rbuf + 4));
+				sum = sumofbuffer(lora_rbuf + 4, lora_rbuf[3] - 1);
+				last = lora_rbuf[3] + 4 - 1;
+				printf("rx message: address %d, netid %d, len %d, \"%s\" -> SUM %s\r\n",
+						((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], lora_rbuf[3],
+						(char *)(lora_rbuf + 4), (sum == lora_rbuf[last])?"OK":"FAILED");
 				lora_rpos -= 4 + lora_rbuf[3];
 				if (lora_rpos > 0) {
 					/* keep unprocessed data */
