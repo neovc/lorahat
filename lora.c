@@ -864,7 +864,7 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 	size = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
 	start = time(NULL);
-	snprintf(name, 9, "%d", (int) start);
+	snprintf(name, 9, "%d", (int) random());
 	while (pos < size) {
 		if ((size - pos) > BLOCKSIZE)
 			len = BLOCKSIZE;
@@ -1078,6 +1078,7 @@ main(int argc, char **argv)
 		}
 	}
 
+	srand(getpid());
 	if (setup_pin(M0, OUTPUT)) {
 		fprintf(stderr, "failed to set pin #%s-%s failed\r\n", M0, OUTPUT);
 		return 1;
