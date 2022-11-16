@@ -29,7 +29,7 @@
  *  -v verbose, print rssi & other infos
  */
 
-int bps = 19200, lora_airspeed = 38400, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
+int bps = 115200, lora_airspeed = 38400, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
 uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
 int lora_fd = -1;
@@ -80,9 +80,9 @@ void
 print_help(void)
 {
 	printf("usage: loraip [optargs]\r\n"
-	       " -a airspeed, set lora airspeed, default is 9600\r\n"
+	       " -a airspeed, set lora airspeed, default is 38400\r\n"
 	       " -A lora address, set lora address, default is 0\r\n"
-	       " -b baudrate, set tty baudrate, default is 9600\r\n"
+	       " -b baudrate, set tty baudrate, default is 115200\r\n"
 	       " -s tty, set lorahat serial tty, default is /dev/ttyS0\r\n"
 	       " -f freq, set lora freq in Mhz, default is 433MHz\r\n"
 	       " -n netid, set lora netid, default is 0\r\n"
