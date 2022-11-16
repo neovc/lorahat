@@ -784,7 +784,7 @@ rxfile(uint8_t *payload, int len)
 	name[8] = '\0';
 	memcpy(&pos, payload + 8, sizeof(pos));
 
-	fp = fopen(name, "wb");
+	fp = fopen(name, "ab"); /* append file, don't overwrite file */
 	if (fp == NULL) {
 		fprintf(stderr, "can't write to file %s, %s\r\n", name, strerror(errno));
 		return -1;
@@ -799,8 +799,7 @@ rxfile(uint8_t *payload, int len)
 		return -1;
 	}
 	fclose(fp);
-	if (verbose_mode)
-		printf("write #%d data at pos %d to file %s -> OK\r\n", len, pos, name);
+	printf("write #%d data at pos %d to file %s -> OK\r\n", len, pos, name);
 	return 0;
 }
 
@@ -856,6 +855,7 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 			break;
 		}
 		usleep(1000); /* sleep 1ms to wait lorahat to complete operation */
+		printf("send #%d at pos %d data to lorahat -> OK\r\n", len, pos);
 		pos += len;
 	}
 
@@ -909,7 +909,6 @@ handle_lora(const int fd, short which, void *arg)
 					printf("rx binary msg:\r\n");
 					hex_dump(lora_rbuf + 5, len - 2, 0);
 				} else if (type == LORA_FILE) {
-					printf("rx file msg:\r\n");
 					rxfile(lora_rbuf + 5, len - 2);
 				}
 
