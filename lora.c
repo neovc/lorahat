@@ -979,8 +979,8 @@ handle_lora(const int fd, short which, void *arg)
 				hex_dump(lora_rbuf, lora_rsize, 1);
 				printf("lora msg mismatched CALC 0x%x != DATA 0x%x\r\n", calc_sum, sum);
 			} else if (type == LORA_TEXT) {
-				printf("rx txt msg: address %d, netid %d, len %d, \"%s\"\r\n",
-					((lora_rbuf[0] << 8) + lora_rbuf[1]), lora_rbuf[2], len - 2,
+				printf("rx txt msg: from address %d / %dMHz, len %d, \"%s\"\r\n",
+					((lora_rbuf[0] << 8) + lora_rbuf[1]), 410 + lora_rbuf[2], len - 2,
 					(char *)(lora_rbuf + 7));
 			} else if (type == LORA_BINARY) {
 				printf("rx binary msg:\r\n");
