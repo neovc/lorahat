@@ -32,7 +32,7 @@
 int bps = 115200, lora_airspeed = 38400, lora_freq = 433, lora_netid = 0, lora_power = 22, lora_buffersize = 1000, verbose_mode = 0, lora_addr = 0;
 uint16_t lora_key = 0;
 char lora_tty[50] = "/dev/ttyS0";
-int lora_fd = -1, blocksize = 200;
+int lora_fd = -1, tx_blocksize = 200;
 
 struct event_base *ev_base = NULL;
 struct event lora_event;
@@ -849,6 +849,7 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 	char name[9];
 	time_t start, end;
 	struct filecmd c;
+	int blocksize = 0;
 
 	if (file == NULL || file[0] == '\0')
 		return -1;
@@ -864,6 +865,11 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 	fseek(fp, 0, SEEK_SET);
 	start = time(NULL);
 	snprintf(name, 9, "%d", (int) random());
+	if (tx_blocksize > lora_buffersize)
+		blocksize = lora_buffersize - 25; /* smaller lora packet size */
+	else
+		blocksize = tx_blocksize;
+
 	while (pos < size) {
 		if ((size - pos) > blocksize)
 			len = blocksize;
@@ -1056,9 +1062,9 @@ main(int argc, char **argv)
 				bps = atoi(optarg);
 				break;
 			case 'B':
-				blocksize = atoi(optarg);
-				if (blocksize > 217)
-					blocksize = 217; /* max 217 */
+				tx_blocksize = atoi(optarg);
+				if (tx_blocksize > 217)
+					tx_blocksize = 217; /* max 217 */
 				break;
 			case 'z':
 				lora_buffersize = atoi(optarg);
