@@ -24,7 +24,7 @@
  *  -f lora frequence in Mhz
  *  -n lora net id
  *  -p tx power
- *  -z buffer size
+ *  -z lora packet size
  *  -k crypt key
  *  -v verbose, print rssi & other infos
  */
@@ -87,7 +87,7 @@ print_help(void)
 	       " -f freq, set lora freq in Mhz, default is 433MHz\r\n"
 	       " -n netid, set lora netid, default is 0\r\n"
 	       " -p power, set lora tx power in dBm, default is 22dBm\r\n"
-	       " -z size, set lorahat serial buffer size, default is 1000 Bytes\r\n"
+	       " -z size, set lorahat packet size, default is 240 Bytes, 128/64/32\r\n"
 	       " -k key, set lora crypt key, default is 0, don't crypt\r\n"
 	       " -B blocksize, set lora file transfer block size, default is 200\r\n"
 	       " -v, verbose mode\r\n"
