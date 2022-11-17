@@ -719,7 +719,9 @@ read_tty(int fd, uint8_t *b, int len)
 {
 	int r;
 
-	if (fd <= 0 || b == NULL || len <= 0) return -1;
+	if (fd <= 0 || b == NULL || len < 0) return -1;
+
+	if (len == 0) return 0;
 
 	if (len > 8)
 		len = 8;
@@ -940,6 +942,16 @@ handle_lora(const int fd, short which, void *arg)
 			r = find_magic(lora_rbuf, lora_rpos, LORA_MAGIC, &start);
 			if (r == 1) {
 				/* NO LORA_MAGIC FOUND */
+				if (lora_rpos == lora_rsize) {
+					/* can't find LORA_MAGIC in all buffer, clear it now */
+					if (lora_rbuf[lora_rsize - 1] == (((LORA_MAGIC >> 8) & 0xff))) {
+						/* keep last high byte of LORA_MAGIC */
+						lora_rbuf[0] = (LORA_MAGIC >> 8) & 0xff;
+						lora_rsize = 1;
+					} else {
+						lora_rsize = 0;
+					}
+				}
 				return;
 			}
 
