@@ -91,6 +91,7 @@ print_help(void)
 	       " -k key, set lora crypt key, default is 0, don't crypt\r\n"
 	       " -B blocksize, set lora file transfer block size, default is 200\r\n"
 	       " -v, verbose mode\r\n"
+	       " -h, print this message\r\n"
 	      );
 	exit(0);
 }
@@ -1021,7 +1022,7 @@ main(int argc, char **argv)
 	int c;
 	pthread_t send_task;
 
-	while ((c = getopt(argc, argv, "a:A:b:B:z:s:p:n:k:f:v")) != -1) {
+	while ((c = getopt(argc, argv, "a:A:b:B:z:s:p:n:k:f:vh")) != -1) {
 		switch (c) {
 			case 'v':
 				verbose_mode = 1;
@@ -1058,6 +1059,7 @@ main(int argc, char **argv)
 			case 'f':
 				lora_freq = atoi(optarg);
 				break;
+			case 'h':
 			default:
 				print_help();
 				break;
