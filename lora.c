@@ -671,104 +671,6 @@ config_lorahat(char *tty, int tty_bps, int rxfreq, int rxaddr, int netid, int tx
 	return fd;
 }
 
-#if 0
-/* return 0 if OK
- * return -1 if FAILED
- */
-int
-write_lorahat(int fd, int rx_freq, int rx_addr, char *msg, int len)
-{
-	char *p, *q;
-	char tx_buf[512];
-	int tx_freq, tx_addr, tx_len, r;
-
-	if (fd < 0 || msg == NULL || msg[0] == '\0' || len <= 0)
-		return -1;
-
-	p = strchr(msg, ',');
-	if (p == NULL)
-		return -1;
-	p[0] = '\0';
-	tx_addr = atoi(msg);
-	p[0] = ',';
-	p ++;
-	q = strchr(p, ',');
-	if (q == NULL)
-		return -1;
-	q[0] = '\0';
-	tx_freq = atoi(p);
-	q[0] = ',';
-	q ++;
-	tx_buf[0] = (tx_addr >> 8) & 0xff;
-	tx_buf[1] = tx_addr & 0xff;
-
-	if ((tx_freq <= 930) && (tx_freq >= 850)) {
-		tx_buf[2] = tx_freq - 850;
-	} else if ((tx_freq <= 493) && (tx_freq >= 410)) {
-		tx_buf[2] = tx_freq - 410;
-	} else {
-		tx_buf[2] = 0;
-	}
-
-	tx_buf[3] = (rx_addr >> 8) & 0xff;
-	tx_buf[4] = rx_addr & 0xff;
-
-	if ((rx_freq <= 930) && (rx_freq >= 850)) {
-		tx_buf[5] = rx_freq - 850;
-	} else if ((rx_freq <= 493) && (rx_freq >= 410)) {
-		tx_buf[5] = rx_freq - 410;
-	} else {
-		tx_buf[5] = 0;
-	}
-
-	tx_len = (q - msg); /* remove 0,433, header */
-	tx_len = len - tx_len;
-	tx_buf[6] = tx_len & 0xff; /* prepend length before payload message */
-	memcpy(tx_buf + 7, q, tx_len);
-	tx_buf[7 + tx_len] = '\0';
-	tx_len += 7;
-
-	r = write(fd, tx_buf, tx_len);
-	if (r != tx_len) {
-		fprintf(stderr, "write #%d data to fd %d failed, return %d\r\n", tx_len, fd, r);
-		return -1;
-	}
-	return 0;
-}
-#endif
-
-/* return -2 if EOF
- * return -1 if failed
- * return 0 if there has no data to read at this time
- * return > 0 if success
- *
- * if max_buf_len <= 0, buffer_size is unlimited
- */
-int
-read_buffer(int fd, uint8_t *b, int max_buf_len)
-{
-	int to_read = 0, r;
-
-	if (fd <= 0 || b == NULL) return -1;
-
-	if (ioctl(fd, FIONREAD, &to_read)) {
-		if (errno != EAGAIN && errno != EINTR) return -1;
-		else return 0;
-	}
-
-	if (to_read == 0) to_read = 1;
-	if ((max_buf_len > 0) && (to_read > max_buf_len)) return -3;
-
-	r = read(fd, b, to_read);
-	if ((r == -1 && (errno != EINTR && errno != EAGAIN)) || r == 0) {
-		/* connection closed or reset */
-		if (r == 0) return -2; /* EOF */
-		return -1;
-	}
-
-	return r;
-}
-
 /* return -2 if EOF
  * return -1 if failed
  * return 0 if there has no data to read at this time
@@ -799,7 +701,7 @@ read_tty(int fd, uint8_t *b, int len)
  * return -1 if FAILED
  */
 int
-evwrite_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint8_t *payload, int len, uint8_t type)
+write_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, uint8_t *payload, int len, uint8_t type)
 {
 	uint8_t tx_buf[512];
 	int r, pos = 0;
@@ -949,7 +851,7 @@ sendfile_lorahat(int fd, int rx_freq, int rx_addr, int tx_freq, int tx_addr, cha
 		while (read_pin(AUX) == 0) {
 			usleep(100); /* sleep 0.1ms before AUX goes to high */
 		}
-		if (-1 == evwrite_lorahat(fd, rx_freq, rx_addr, tx_freq, tx_addr, payload, len + sizeof(c), LORA_FILE)) {
+		if (-1 == write_lorahat(fd, rx_freq, rx_addr, tx_freq, tx_addr, payload, len + sizeof(c), LORA_FILE)) {
 			fprintf(stderr, "write to lorahat at #%d failed\r\n", pos);
 			r = -1;
 			break;
@@ -1102,7 +1004,7 @@ send_handler(void *arg)
 
 			if (msg[0] == 's' || msg[0] == 'S') {
 				/* send lora txt message */
-				if (0 == evwrite_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (uint8_t *) q, strlen(q), LORA_TEXT))
+				if (0 == write_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (uint8_t *) q, strlen(q), LORA_TEXT))
 					printf("send \"%s\" to lora #%d / %dMhz -> OK\r\n", q, tx_addr, tx_freq);
 			} else if (msg[0] == 't' || msg[0] == 'T') {
 				sendfile_lorahat(lora_fd, lora_freq, lora_addr, tx_freq, tx_addr, (char *) q);
