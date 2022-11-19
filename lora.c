@@ -910,9 +910,9 @@ handle_lora(const int fd, short which, void *arg)
 					if (lora_rbuf[lora_rsize - 1] == (((LORA_MAGIC >> 8) & 0xff))) {
 						/* keep last high byte of LORA_MAGIC */
 						lora_rbuf[0] = (LORA_MAGIC >> 8) & 0xff;
-						lora_rsize = 1;
+						lora_rpos = 1;
 					} else {
-						lora_rsize = 0;
+						lora_rpos = 0;
 					}
 				}
 				return;
