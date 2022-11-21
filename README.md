@@ -3,7 +3,7 @@
 simple utility to config [waveshare's sx126x lorahat](https://www.waveshare.net/wiki/SX1268_470M_LoRa_HAT).
 
 ```
-usage: loraip [optargs]
+usage: lorahat [optargs]
  -a airspeed, set lora airspeed, default is 38400
  -A lora address, set lora address, default is 0
  -b baudrate, set tty baudrate, default is 115200
@@ -23,7 +23,7 @@ usage: loraip [optargs]
 ## sender
 
 ```
-[lora@rpi8:~/loraip $] ./loraip
+[lora@rpi8:~/lorahat $] ./lorahat
 open /dev/ttyS0 at default 9600 bps -> fd #3
 config lorahat at tty 115200bps, airspeed 38400bps, rx 433 MHz, rx addr #0, netid #0, tx pwr 22dBm, packet size #240 -> OK
 reopen /dev/ttyS0 - #115200 bps -> fd #3
@@ -40,7 +40,7 @@ enter '[s|t]0,433,xxxx' to send message
 ## receiver
 
 ```
-[lora@lora:~/loraip $] ./loraip
+[lora@lora:~/lorahat $] ./lorahat
 open /dev/ttyS0 at default 9600 bps -> fd #3
 config lorahat at tty 115200bps, airspeed 38400bps, rx 433 MHz, rx addr #0, netid #0, tx pwr 22dBm, packet size #240 -> OK
 reopen /dev/ttyS0 - #115200 bps -> fd #3
@@ -55,7 +55,7 @@ rx txt msg: from address 0 / 433MHz, len 7, "test999"
 ## sender
 
 ```
-[lora@rpi8:~/loraip $] ./loraip
+[lora@rpi8:~/lorahat $] ./lorahat
 open /dev/ttyS0 at default 9600 bps -> fd #3
 config lorahat at tty 115200bps, airspeed 38400bps, rx 433 MHz, rx addr #0, netid #0, tx pwr 22dBm, packet size #240 -> OK
 reopen /dev/ttyS0 - #115200 bps -> fd #3
@@ -96,7 +96,7 @@ enter '[s|t]0,433,xxxx' to send message
 ## receiver
 
 ```
-[lora@lora:~/loraip $] ./loraip
+[lora@lora:~/lorahat $] ./lorahat
 open /dev/ttyS0 at default 9600 bps -> fd #3
 config lorahat at tty 115200bps, airspeed 38400bps, rx 433 MHz, rx addr #0, netid #0, tx pwr 22dBm, packet size #240 -> OK
 reopen /dev/ttyS0 - #115200 bps -> fd #3

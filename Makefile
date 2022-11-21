@@ -1,4 +1,4 @@
-PROG = loraip
+PROG = lorahat
 $(PROG): lora.c
 	gcc -o $@ -O2 -Wall -g -I. $^ -levent -lpthread
 clean:

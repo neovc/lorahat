@@ -41,8 +41,4 @@ tags
 *~
 *.x86_64
 *.lst
-.lock-waf_*
-build/*
-.waf*/*
-term.sql.db
-loraip
+lorahat
