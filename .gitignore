@@ -42,8 +42,6 @@ tags
 *.x86_64
 *.lst
 lorahat
-Cargo.lock
-
 
 # Added by cargo
 
